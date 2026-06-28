@@ -1,0 +1,5 @@
+GOOGLE_SERVICE_ACCOUNT_EMAIL="keloshell@your-project.iam.gserviceaccount.com"
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nreplace-me\n-----END PRIVATE KEY-----\n"
+GOOGLE_SPREADSHEET_ID="replace-with-replica-spreadsheet-id"
+LOCAL_AUTH_BYPASS="true"
+

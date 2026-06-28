@@ -6,3 +6,7 @@ build
 types
 .idea
 .github
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.wrangler

@@ -113,7 +113,7 @@ The single client whose bodybuilding program is managed in the **Source Spreadsh
 _Avoid_: user, account, client list
 
 **Private Tool Access**:
-Access to the **PWA** and its writes governed by the private Google Sheet and Apps Script deployment rather than app-specific accounts.
+Access to the **PWA** and its writes governed by Cloudflare Access and the private **Source Spreadsheet** rather than app-specific accounts.
 _Avoid_: app login, user account
 
 **Progression Prompt**:
@@ -274,6 +274,8 @@ _Avoid_: incomplete check-in
 - The MVP supports exactly one **Eduardo** and one **Source Spreadsheet**
 - The **PWA** is Eduardo-facing; the coach works directly in the **Source Spreadsheet**
 - The MVP has **Private Tool Access** rather than app-specific accounts
+- The **PWA** and its same-origin spreadsheet proxy are deployed together on Cloudflare Pages
+- The spreadsheet proxy accesses the **Source Spreadsheet** through a Google service account; Google credentials are never sent to the browser
 - **Free-Form Notes** are out of MVP scope
 - **Exercise Substitutions** are out of MVP scope
 - **Gym Utilities** are out of MVP scope

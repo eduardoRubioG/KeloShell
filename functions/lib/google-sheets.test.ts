@@ -1,0 +1,103 @@
+import { webcrypto } from 'node:crypto';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { GoogleSheetsClient, resetGoogleTokenCache } from './google-sheets';
+
+async function privateKeyPem(): Promise<string> {
+  const pair = (await webcrypto.subtle.generateKey(
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['sign', 'verify']
+  )) as CryptoKeyPair;
+  const key = await webcrypto.subtle.exportKey('pkcs8', pair.privateKey);
+  const body = Buffer.from(key).toString('base64').match(/.{1,64}/g)?.join('\n');
+  return `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----\n`;
+}
+
+describe('GoogleSheetsClient', () => {
+  beforeEach(() => resetGoogleTokenCache());
+
+  it('invokes fetch with the global runtime receiver', async () => {
+    let receiver: unknown;
+    const request = vi.fn<typeof fetch>(function (this: unknown) {
+      receiver = this;
+      return Promise.resolve(
+        Response.json({ access_token: 'token-value', expires_in: 3600 })
+      );
+    });
+    const client = new GoogleSheetsClient(
+      {
+        clientEmail: 'test@example.iam.gserviceaccount.com',
+        privateKey: await privateKeyPem(),
+        spreadsheetId: 'replica-id',
+      },
+      request,
+      () => 1_700_000_000_000
+    );
+
+    await client.authenticate();
+
+    expect(receiver).toBe(globalThis);
+  });
+
+  it('signs a service-account assertion and reuses the short-lived token', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({ access_token: 'token-value', expires_in: 3600 })
+    );
+    const client = new GoogleSheetsClient(
+      {
+        clientEmail: 'test@example.iam.gserviceaccount.com',
+        privateKey: await privateKeyPem(),
+        spreadsheetId: 'replica-id',
+      },
+      request,
+      () => 1_700_000_000_000
+    );
+
+    await client.authenticate();
+    await client.authenticate();
+
+    expect(request).toHaveBeenCalledTimes(1);
+    const [url, init] = request.mock.calls[0];
+    expect(url).toBe('https://oauth2.googleapis.com/token');
+    expect(init?.method).toBe('POST');
+    expect(String(init?.body)).toContain(
+      'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer'
+    );
+    expect(String(init?.body).split('assertion=')[1]?.split('.')).toHaveLength(3);
+  });
+
+  it('reads a value through the Sheets REST API without leaking credentials in the URL', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ access_token: 'token-value', expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(Response.json({ values: [['EXPECTED']] }));
+    const client = new GoogleSheetsClient(
+      {
+        clientEmail: 'test@example.iam.gserviceaccount.com',
+        privateKey: await privateKeyPem(),
+        spreadsheetId: 'replica-id',
+      },
+      request,
+      () => 1_700_000_000_000
+    );
+
+    const value = await client.readValue('_PWA_CONNECTIVITY', 'A1');
+
+    expect(value).toBe('EXPECTED');
+    expect(String(request.mock.calls[1][0])).toContain(
+      '/replica-id/values/'
+    );
+    expect(String(request.mock.calls[1][0])).not.toContain('PRIVATE');
+    expect(request.mock.calls[1][1]?.headers).toMatchObject({
+      authorization: 'Bearer token-value',
+    });
+  });
+});

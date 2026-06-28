@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "keloshell",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-06-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "SHEETS_TARGET_LABEL": "replica",
+    "CONNECTIVITY_SHEET_NAME": "_PWA_CONNECTIVITY",
+    "CONNECTIVITY_SENTINEL": "KELOSHELL_CONNECTIVITY_V1",
+    "ALLOW_CONNECTIVITY_WRITE_TEST": "true"
+  }
+}
+
