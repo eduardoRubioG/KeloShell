@@ -1,6 +1,6 @@
 # KeloShell
 
-KeloShell is Eduardo's private workout logging companion for a coach-managed Google spreadsheet. The Lit PWA and its Cloudflare Pages Function live in this repository and deploy together.
+KeloShell is Eduardo's private workout logging companion for a coach-managed Google spreadsheet. The React PWA and its Cloudflare Pages Function live in this repository and deploy together.
 
 ## Connectivity architecture
 
@@ -68,6 +68,22 @@ npm test          # unit and failure-path tests
 npm run build     # frontend and Worker typechecks, then production build
 npm run deploy    # build and deploy with Wrangler
 ```
+
+## Frontend structure
+
+The frontend uses React, file-based TanStack Router routes, and TanStack Query for same-origin API state. Route files stay thin and delegate UI and domain behavior to feature folders.
+
+```text
+src/
+├── app/       # React bootstrap, router, Query client, development tools
+├── routes/    # File-based route declarations
+├── features/  # Training, body tracking, and history features
+├── shared/    # Cross-feature layout and UI
+├── contracts/ # Browser/Worker API contracts
+└── styles/    # Global Tailwind theme and base styles
+```
+
+The generated `src/routeTree.gen.ts` file is committed so TypeScript can validate a clean checkout before Vite runs. Do not edit it directly; the TanStack Router Vite plugin owns it.
 
 ## Production cutover
 

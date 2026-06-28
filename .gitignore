@@ -10,3 +10,4 @@ types
 .dev.vars.*
 !.dev.vars.example
 .wrangler
+designs

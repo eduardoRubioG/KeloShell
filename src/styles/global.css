@@ -1,21 +1,83 @@
+@import '@fontsource-variable/archivo';
+@import '@fontsource-variable/jetbrains-mono';
+@import 'tailwindcss';
 
-:root {
-  color-scheme: light;
-  font-family: Georgia, 'Times New Roman', serif;
-  background: #f2f0e9;
+@theme {
+  --font-sans: 'Archivo Variable', 'Arial Narrow', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+
+  --color-canvas: #000000;
+  --color-nav: #0a0a0c;
+  --color-surface: #0f0f12;
+  --color-surface-raised: #141418;
+  --color-surface-control: #1a1a20;
+  --color-track: #1c1c22;
+
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #c8c8cc;
+  --color-text-muted: #86868c;
+  --color-text-faint: #5e5e66;
+
+  --color-border-subtle: rgb(255 255 255 / 0.07);
+  --color-border-strong: rgb(255 255 255 / 0.14);
+
+  --color-action: #4c8dff;
+  --color-action-ink: #021029;
+  --color-action-soft: rgb(76 141 255 / 0.1);
+  --color-action-soft-hover: rgb(76 141 255 / 0.15);
+  --color-action-muted: rgb(76 141 255 / 0.2);
+  --color-action-border: rgb(76 141 255 / 0.22);
+
+  --color-complete: #34d27b;
+  --color-complete-soft: rgb(52 210 123 / 0.1);
+  --color-complete-soft-hover: rgb(52 210 123 / 0.15);
+  --color-complete-border: rgb(52 210 123 / 0.3);
+
+  --color-partial: #f4a640;
+  --color-partial-soft: rgb(244 166 64 / 0.1);
+  --color-partial-soft-hover: rgb(244 166 64 / 0.15);
+  --color-partial-border: rgb(244 166 64 / 0.45);
+
+  --color-danger: #ff6464;
+
+  --radius-control: 0.625rem;
+  --radius-card: 1rem;
+  --radius-session: 1.25rem;
+
+  --spacing-app: 27rem;
+  --tracking-display: -0.04em;
+  --tracking-label: 0.08em;
+  --tracking-eyebrow: 0.16em;
+  --shadow-app: 0 1.875rem 4.375rem rgb(0 0 0 / 0.55);
 }
 
-html,
-body {
-  padding: 0;
-  margin: 0;
+:root {
+  color-scheme: dark;
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  background: var(--color-canvas);
+  color: var(--color-text-primary);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  min-width: 320px;
   min-height: 100%;
-  background: #f2f0e9;
-  color: #171714;
+  background: var(--color-canvas);
 }
 
 body {
   min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+  background: var(--color-canvas);
+}
+
+#root {
+  display: block;
+  min-height: 100dvh;
 }
 
 button,
@@ -23,4 +85,17 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

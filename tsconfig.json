@@ -1,28 +1,22 @@
 {
   "compilerOptions": {
-      "module": "esnext",
-      "target": "esnext",
-      "lib": ["es2017", "esnext", "dom", "dom.iterable"],
-      "declaration": true,
-      "emitDeclarationOnly": true,
-      "skipLibCheck": true,
-      "outDir": "./types",
-      "strict": true,
-      "noUnusedLocals": true,
-      "noUnusedParameters": true,
-      "noImplicitReturns": true,
-      "noFallthroughCasesInSwitch": true,
-      "moduleResolution": "bundler",
-      "allowSyntheticDefaultImports": true,
-      "experimentalDecorators": true,
-      "forceConsistentCasingInFileNames": true,
-      "useDefineForClassFields": false,
-      "isolatedModules": true,
-      "types": [
-          "vite-plugin-pwa/client",
-          "vite/client"
-      ]
+    "module": "esnext",
+    "target": "esnext",
+    "lib": ["es2017", "esnext", "dom", "dom.iterable"],
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "types": ["vite-plugin-pwa/client", "vite/client"]
   },
-  "include": ["src/**/*.ts", "router.d.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["node_modules"]
 }
