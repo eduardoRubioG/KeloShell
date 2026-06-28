@@ -14,7 +14,7 @@
                 "background": {
                     "activeOnStart": true,
                     "beginsPattern": ".*",
-                    "endsPattern": "ready in .+"
+                    "endsPattern": "Ready on http://.+"
                 }
             },
         },

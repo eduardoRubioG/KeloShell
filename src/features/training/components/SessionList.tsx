@@ -1,7 +1,11 @@
-import { sessionSummaries } from '../model/session-summary';
+import type { SessionSummary } from '../../../contracts/training';
 import { SessionCard } from './SessionCard';
 
-export function SessionList() {
+interface SessionListProps {
+  sessions: SessionSummary[];
+}
+
+export function SessionList({ sessions }: SessionListProps) {
   return (
     <section className="mt-5" aria-labelledby="sessions-heading">
       <h2
@@ -11,7 +15,7 @@ export function SessionList() {
         Sessions
       </h2>
       <div className="mt-2 grid gap-2.5">
-        {sessionSummaries.map((session) => (
+        {sessions.map((session) => (
           <SessionCard key={session.name} session={session} />
         ))}
       </div>

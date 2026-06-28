@@ -69,6 +69,10 @@ npm run build     # frontend and Worker typechecks, then production build
 npm run deploy    # build and deploy with Wrangler
 ```
 
+The IDE launch task and `npm run start-remote` also run the complete Pages app
+on port 5173. Use `npm run dev:ui` only when API calls are intentionally out of
+scope; Vite alone cannot execute files in `functions/`.
+
 ## Frontend structure
 
 The frontend uses React, file-based TanStack Router routes, and TanStack Query for same-origin API state. Route files stay thin and delegate UI and domain behavior to feature folders.
@@ -84,6 +88,18 @@ src/
 ```
 
 The generated `src/routeTree.gen.ts` file is committed so TypeScript can validate a clean checkout before Vite runs. Do not edit it directly; the TanStack Router Vite plugin owns it.
+
+### Design reference
+
+Treat [`designs/001__app_designs.html`](designs/001__app_designs.html) as the
+first-class reference for the PWA's visual language and general structure. It
+is directional rather than a complete behavioral specification: preserve its
+typography, color, spacing, progress treatments, mobile hierarchy, and
+navigation patterns while adapting incomplete screens to `CONTEXT.md`, real
+Source Spreadsheet data, accessibility, and responsive behavior.
+
+The server-owned spreadsheet mapping is documented in
+[`docs/source-spreadsheet-schema.md`](docs/source-spreadsheet-schema.md).
 
 ## Production cutover
 

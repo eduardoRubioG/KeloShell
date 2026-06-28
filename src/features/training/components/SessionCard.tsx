@@ -1,15 +1,15 @@
 import type {
   SessionStatus,
   SessionSummary,
-} from '../model/session-summary';
+} from '../../../contracts/training';
 
 const sessionStyles: Record<SessionStatus, string> = {
   complete:
-    'border-complete-border bg-complete-soft text-text-primary hover:bg-complete-soft-hover',
+    'border-complete-border bg-complete-soft text-text-primary',
   partial:
-    'border-partial-border bg-partial-soft text-text-primary hover:bg-partial-soft-hover',
+    'border-partial-border bg-partial-soft text-text-primary',
   'not-started':
-    'border-border-subtle bg-surface-raised text-text-secondary hover:border-border-strong',
+    'border-border-subtle bg-surface-raised text-text-secondary',
 };
 
 const sessionAccentStyles: Record<SessionStatus, string> = {
@@ -23,11 +23,19 @@ interface SessionCardProps {
 }
 
 export function SessionCard({ session }: SessionCardProps) {
+  const statusLabel =
+    session.status === 'complete'
+      ? 'Complete'
+      : session.status === 'partial'
+        ? session.completedLifts > 0
+          ? `Partial · ${session.completedLifts} complete`
+          : 'Partial'
+        : 'Not started';
+
   return (
-    <button
-      type="button"
-      className={`flex w-full items-center gap-3.5 rounded-session border px-4 py-3.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action ${sessionStyles[session.status]}`}
-      aria-label={`${session.name}: ${session.statusLabel}, ${session.completedLifts} of ${session.totalLifts} lifts complete`}
+    <article
+      className={`flex w-full items-center gap-3.5 rounded-session border px-4 py-3.5 text-left ${sessionStyles[session.status]}`}
+      aria-label={`${session.name}: ${statusLabel}, ${session.completedLifts} of ${session.totalLifts} lifts complete`}
     >
       <span className="min-w-0 flex-1">
         <span className="block text-lg font-extrabold tracking-tight">
@@ -36,7 +44,7 @@ export function SessionCard({ session }: SessionCardProps) {
         <span
           className={`mt-0.5 block font-mono text-[0.6875rem] font-semibold uppercase ${sessionAccentStyles[session.status]}`}
         >
-          {session.statusLabel}
+          {statusLabel}
         </span>
       </span>
       <span
@@ -45,6 +53,6 @@ export function SessionCard({ session }: SessionCardProps) {
       >
         {session.completedLifts}/{session.totalLifts}
       </span>
-    </button>
+    </article>
   );
 }

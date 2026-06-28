@@ -100,4 +100,45 @@ describe('GoogleSheetsClient', () => {
       authorization: 'Bearer token-value',
     });
   });
+
+  it('batch reads ranges with an explicit value rendering mode', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ access_token: 'token-value', expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          valueRanges: [
+            { values: [['Upper A']] },
+            { values: [['Lower A']] },
+          ],
+        })
+      );
+    const client = new GoogleSheetsClient(
+      {
+        clientEmail: 'test@example.iam.gserviceaccount.com',
+        privateKey: await privateKeyPem(),
+        spreadsheetId: 'replica-id',
+      },
+      request,
+      () => 1_700_000_000_000
+    );
+
+    const values = await client.readRanges(
+      ["'Upper A'!A:AP", "'Lower A'!A:AP"],
+      'UNFORMATTED_VALUE'
+    );
+
+    expect(values).toEqual([[['Upper A']], [['Lower A']]]);
+    const url = new URL(String(request.mock.calls[1][0]));
+    expect(url.pathname).toContain('/replica-id/values:batchGet');
+    expect(url.searchParams.getAll('ranges')).toEqual([
+      "'Upper A'!A:AP",
+      "'Lower A'!A:AP",
+    ]);
+    expect(url.searchParams.get('valueRenderOption')).toBe(
+      'UNFORMATTED_VALUE'
+    );
+  });
 });

@@ -7,13 +7,13 @@
     "dev-server": "vite --open",
     "dev": "npm run build && wrangler pages dev dist",
     "dev:ui": "vite",
-    "dev-task": "vite",
+    "dev-task": "npm run build && wrangler pages dev dist --port 5173",
     "deploy": "npm run build && wrangler pages deploy dist",
     "build": "tsc --noEmit && tsc -p tsconfig.worker.json && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "npm run dev",
-    "start-remote": "vite --host"
+    "start-remote": "npm run build && wrangler pages dev dist --ip 0.0.0.0 --port 5173"
   },
   "author": "",
   "license": "ISC",

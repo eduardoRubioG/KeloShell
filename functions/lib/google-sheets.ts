@@ -11,6 +11,10 @@ interface ValueResponse {
   values?: unknown[][];
 }
 
+interface BatchValueResponse {
+  valueRanges?: Array<{ values?: unknown[][] }>;
+}
+
 export interface GoogleSheetsCredentials {
   clientEmail: string;
   privateKey: string;
@@ -132,6 +136,20 @@ export class GoogleSheetsClient {
       method: 'POST',
       body: '{}',
     });
+  }
+
+  async readRanges(
+    ranges: readonly string[],
+    valueRenderOption: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
+  ): Promise<unknown[][][]> {
+    const query = new URLSearchParams({ valueRenderOption });
+    for (const range of ranges) {
+      query.append('ranges', range);
+    }
+    const response = await this.sheetsRequest<BatchValueResponse>(
+      `/values:batchGet?${query}`
+    );
+    return (response.valueRanges ?? []).map((range) => range.values ?? []);
   }
 
   private range(sheetName: string, cell: string): string {
