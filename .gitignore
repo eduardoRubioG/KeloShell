@@ -11,3 +11,4 @@ types
 !.dev.vars.example
 .wrangler
 designs
+.playwright-cli

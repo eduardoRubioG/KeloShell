@@ -1,3 +1,4 @@
+import { CaretLeft, CaretRight } from '@phosphor-icons/react';
 import type { CSSProperties } from 'react';
 
 import type { TrainingWeekSummary } from '../../../contracts/training';
@@ -93,6 +94,7 @@ interface WeekControlProps {
 
 function WeekControl({ direction, weekId, onSelectWeek }: WeekControlProps) {
   const label = direction === 'previous' ? 'Previous week' : 'Next week';
+  const DirectionIcon = direction === 'previous' ? CaretLeft : CaretRight;
   return (
     <button
       type="button"
@@ -101,7 +103,7 @@ function WeekControl({ direction, weekId, onSelectWeek }: WeekControlProps) {
       aria-label={label}
       onClick={() => weekId && onSelectWeek(weekId)}
     >
-      <span aria-hidden="true">{direction === 'previous' ? '‹' : '›'}</span>
+      <DirectionIcon aria-hidden="true" size={18} weight="bold" />
     </button>
   );
 }

@@ -88,6 +88,10 @@ _Avoid_: user settings, editable workout
 Read-only coach-authored information needed to perform a programmed lift, including lift name, progression scheme, set count, rep target, proximity to failure, and cue text.
 _Avoid_: help text, app instructions
 
+**Filming Reminder**:
+An advisory camera marker identifying a programmed lift for which Eduardo should film one set for coach feedback. Training Weeks 1, 4, 7, and so on mark lifts one and two; Training Weeks 2, 5, 8, and so on mark lifts three and four; Training Weeks 3, 6, 9, and so on mark lift five and every remaining lift.
+_Avoid_: required recording, uploaded video
+
 **Coach Notes**:
 Coach-authored profile, priority, rotation, or coaching context stored in the **Source Spreadsheet**.
 _Avoid_: app notes, user notes
@@ -260,6 +264,8 @@ _Avoid_: incomplete check-in
 - The **PWA** can write **Lift Logs**, **Daily Bodyweight**, and **Body Measurements**
 - The **PWA** can read but must not write the **Program Definition** or **Coach Notes**
 - The **PWA** should display **Execution Context** for programmed lifts
+- A **Filming Reminder** is derived from the displayed **Training Week** number and the lift's order in the current **Program Definition**
+- A **Filming Reminder** is informational and does not capture, upload, or persist video
 - There is at most one **Daily Bodyweight** per calendar date
 - Re-entering **Daily Bodyweight** for the same date replaces the existing value
 - A **Measurement Check-In** contains one or more **Body Measurements**

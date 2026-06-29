@@ -1,3 +1,8 @@
+import {
+  Barbell,
+  ClockCounterClockwise,
+  PersonSimple,
+} from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
 
@@ -11,35 +16,18 @@ const navigationItems: readonly NavigationItem[] = [
   {
     label: 'Train',
     to: '/',
-    icon: (
-      <span className="relative block h-[1.125rem] w-5" aria-hidden="true">
-        <span className="absolute bottom-0 left-0 h-2.5 w-1 rounded-sm bg-current" />
-        <span className="absolute bottom-0 right-0 h-2.5 w-1 rounded-sm bg-current" />
-        <span className="absolute left-1/2 top-0 h-[1.125rem] w-1 -translate-x-1/2 rounded-sm bg-current" />
-        <span className="absolute left-0 top-1/2 h-1 w-5 -translate-y-1/2 rounded-sm bg-current" />
-      </span>
-    ),
+    icon: <Barbell aria-hidden="true" size={20} weight="bold" />,
   },
   {
     label: 'Body',
     to: '/body',
-    icon: (
-      <span
-        className="block size-[1.125rem] rounded-full border-2 border-current"
-        aria-hidden="true"
-      />
-    ),
+    icon: <PersonSimple aria-hidden="true" size={20} weight="bold" />,
   },
   {
     label: 'History',
     to: '/history',
     icon: (
-      <span
-        className="relative block size-[1.125rem] rounded-full border-2 border-current"
-        aria-hidden="true"
-      >
-        <span className="absolute -left-1 top-0 block h-1.5 w-1.5 rotate-45 border-b-2 border-l-2 border-current" />
-      </span>
+      <ClockCounterClockwise aria-hidden="true" size={20} weight="bold" />
     ),
   },
 ] as const;

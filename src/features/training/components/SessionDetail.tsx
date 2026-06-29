@@ -1,9 +1,12 @@
+import { Camera, CaretLeft, Sparkle } from '@phosphor-icons/react';
+
 import type {
   LiftDetail,
   SessionStatus,
   SessionSummary,
   TrainingWeekSummary,
 } from '../../../contracts/training';
+import { isLiftScheduledForFilming } from '../filming-schedule';
 
 const statusLabels: Record<SessionStatus, string> = {
   complete: 'Complete',
@@ -51,7 +54,7 @@ export function SessionDetail({
               aria-label="Back to Training Week"
               onClick={onBack}
             >
-              <span aria-hidden="true">‹</span>
+              <CaretLeft aria-hidden="true" size={18} weight="bold" />
             </button>
             <div className="min-w-0">
               <h1 className="truncate text-[1.375rem] font-black leading-none tracking-display">
@@ -87,6 +90,7 @@ export function SessionDetail({
             lift={lift}
             index={index}
             emphasized={index === nextIncompleteIndex}
+            shouldFilm={isLiftScheduledForFilming(week.weekNumber, index)}
             onSelect={() => onSelectLift(lift)}
           />
         ))}
@@ -99,11 +103,13 @@ function LiftRow({
   lift,
   index,
   emphasized,
+  shouldFilm,
   onSelect,
 }: {
   lift: LiftDetail;
   index: number;
   emphasized: boolean;
+  shouldFilm: boolean;
   onSelect: () => void;
 }) {
   const hasLog =
@@ -115,14 +121,38 @@ function LiftRow({
     <button
       type="button"
       className={`flex w-full items-center gap-3 rounded-card border px-3.5 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action ${
-        emphasized
+        lift.status === 'complete'
+          ? 'border-complete/50 bg-surface-raised hover:border-complete/70'
+          : emphasized
           ? 'border-action/40 bg-surface'
           : 'border-border-subtle bg-surface-raised hover:border-border-strong'
       }`}
-      aria-label={`${actionLabel} ${lift.name}`}
+      aria-label={`${actionLabel} ${lift.name}${
+        lift.progressionAchievement ? '. Progression target reached' : ''
+      }${
+        shouldFilm ? '. Film one set for coach feedback' : ''
+      }`}
       onClick={onSelect}
     >
-      <LiftStatus status={lift.status} index={index} />
+      <span className="flex shrink-0 items-center gap-1.5">
+        <LiftStatus status={lift.status} index={index} />
+        {shouldFilm ? (
+          <span
+            className="grid size-[1.375rem] place-items-center text-action"
+            title="Film one set for coach feedback"
+          >
+            <Camera aria-hidden="true" size={17} weight="fill" />
+          </span>
+        ) : null}
+        {lift.progressionAchievement ? (
+          <span
+            className="grid size-[1.375rem] place-items-center text-progression"
+            title={lift.progressionAchievement.message}
+          >
+            <Sparkle aria-hidden="true" size={17} weight="fill" />
+          </span>
+        ) : null}
+      </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[0.9375rem] font-extrabold leading-tight">
           {lift.name}
@@ -159,16 +189,6 @@ function LiftRow({
 }
 
 function LiftStatus({ status, index }: { status: SessionStatus; index: number }) {
-  if (status === 'complete') {
-    return (
-      <span
-        className="grid size-[1.375rem] shrink-0 place-items-center rounded-full bg-complete text-[0.6875rem] font-black text-canvas"
-        aria-label={`Lift ${index + 1}: complete`}
-      >
-        ✓
-      </span>
-    );
-  }
   return (
     <span
       className={`grid size-[1.375rem] shrink-0 place-items-center rounded-full border font-mono text-[0.5625rem] font-bold ${

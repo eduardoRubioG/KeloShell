@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import {
+  CaretLeft,
+  Camera,
+  Check,
+  Info,
+  Minus,
+  Plus,
+  Sparkle,
+} from '@phosphor-icons/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import type {
@@ -8,6 +17,9 @@ import type {
   TrainingWeeksResponse,
 } from '../../../contracts/training';
 import { saveLiftLog } from '../api/training-weeks';
+import { isLiftScheduledForFilming } from '../filming-schedule';
+import { getProgressionGuidance } from '../progression-guidance';
+import { ProgressionDrawer } from './ProgressionDrawer';
 
 interface LiftLoggingProps {
   week: TrainingWeekSummary;
@@ -27,6 +39,14 @@ export function LiftLogging({
   const queryClient = useQueryClient();
   const initialWeight = lift.weight ?? '';
   const initialSets = lift.setResults.map((result) => result ?? '');
+  const liftIndex = session.lifts.findIndex((candidate) => candidate.id === lift.id);
+  const shouldFilm = isLiftScheduledForFilming(week.weekNumber, liftIndex);
+  const progressionGuidance = getProgressionGuidance(
+    lift.progression,
+    lift.repTarget
+  );
+  const progressionButtonRef = useRef<HTMLButtonElement>(null);
+  const [isProgressionOpen, setIsProgressionOpen] = useState(false);
   const [weight, setWeight] = useState(initialWeight);
   const [setResults, setSetResults] = useState(initialSets);
   const isDirty =
@@ -72,10 +92,7 @@ export function LiftLogging({
   }, [isDirty, parsedSets, parsedWeight]);
 
   const handleBack = () => {
-    if (
-      isDirty &&
-      !window.confirm('Discard the changes to this Lift Log?')
-    ) {
+    if (isDirty && !window.confirm('Discard the changes to this Lift Log?')) {
       return;
     }
     onBack();
@@ -123,6 +140,11 @@ export function LiftLogging({
     });
   };
 
+  const dismissProgression = () => {
+    setIsProgressionOpen(false);
+    window.requestAnimationFrame(() => progressionButtonRef.current?.focus());
+  };
+
   return (
     <section aria-labelledby="lift-heading">
       <header className="flex items-center gap-3 px-0.5">
@@ -132,9 +154,9 @@ export function LiftLogging({
           aria-label="Back to Workout Session"
           onClick={handleBack}
         >
-          <span aria-hidden="true">‹</span>
+          <CaretLeft aria-hidden="true" size={18} weight="bold" />
         </button>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1
             id="lift-heading"
             className="truncate text-lg font-black leading-tight tracking-display"
@@ -145,12 +167,21 @@ export function LiftLogging({
             {session.name} · Week {week.weekNumber}
           </p>
         </div>
+        {shouldFilm ? (
+          <span
+            className="grid size-10 shrink-0 place-items-center rounded-control border border-action-border bg-action-soft text-action"
+            aria-label="Film one set for coach feedback"
+            title="Film one set for coach feedback"
+          >
+            <Camera aria-hidden="true" size={21} weight="fill" />
+          </span>
+        ) : null}
       </header>
 
       {lift.progressionPrompt ? (
         <section className="progression-glow mt-3 rounded-card border border-complete/50 bg-[linear-gradient(180deg,rgb(52_210_123_/_0.16),rgb(52_210_123_/_0.05))] px-4 py-3">
           <div className="flex items-center gap-2 text-complete">
-            <span aria-hidden="true" className="text-base font-black">✦</span>
+            <Sparkle aria-hidden="true" size={16} weight="fill" />
             <h2 className="text-[0.8125rem] font-extrabold">
               {lift.progressionPrompt.message}
             </h2>
@@ -176,7 +207,7 @@ export function LiftLogging({
             aria-hidden="true"
             className="grid size-5 shrink-0 place-items-center rounded-full bg-complete text-xs font-black text-[#04150b]"
           >
-            ✓
+            <Check aria-hidden="true" size={12} weight="bold" />
           </span>
           <h2 className="text-xs font-bold text-[#c8e9d6]">
             {lift.progressionAchievement.message}
@@ -190,9 +221,23 @@ export function LiftLogging({
             Coach · Execution context
           </h2>
           {lift.progression ? (
-            <span className="text-[0.6875rem] font-bold text-action">
-              {lift.progression}
-            </span>
+            progressionGuidance ? (
+              <button
+                ref={progressionButtonRef}
+                type="button"
+                className="flex min-h-8 items-center gap-1.5 rounded-control border border-action-border bg-action-soft px-2.5 text-[0.6875rem] font-bold text-action transition-colors hover:bg-action-soft-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
+                aria-haspopup="dialog"
+                aria-expanded={isProgressionOpen}
+                onClick={() => setIsProgressionOpen(true)}
+              >
+                {lift.progression}
+                <Info aria-hidden="true" size={14} weight="bold" />
+              </button>
+            ) : (
+              <span className="text-[0.6875rem] font-bold text-action">
+                {lift.progression}
+              </span>
+            )
           ) : null}
         </div>
         <div className="mt-2.5 grid grid-cols-3 gap-2">
@@ -213,8 +258,8 @@ export function LiftLogging({
             Prev
           </h2>
           <p className="min-w-0 truncate font-mono text-xs text-text-secondary">
-            Wk {lift.previousLog.weekNumber} · {lift.previousLog.weight || '—'} ·{' '}
-            {lift.previousLog.setResults.join(' · ')}
+            Wk {lift.previousLog.weekNumber} · {lift.previousLog.weight || '—'}{' '}
+            · {lift.previousLog.setResults.join(' · ')}
           </p>
         </section>
       ) : null}
@@ -226,15 +271,17 @@ export function LiftLogging({
             type="button"
             className="grid size-10 place-items-center rounded-control bg-surface-control text-xl font-bold text-text-muted disabled:cursor-not-allowed disabled:opacity-35"
             aria-label="Decrease working weight by 5"
-            disabled={parsedWeight === null || parsedWeight <= 5 || mutation.isPending}
+            disabled={
+              parsedWeight === null || parsedWeight <= 5 || mutation.isPending
+            }
             onClick={() => adjustWeight(-5)}
           >
-            −
+            <Minus aria-hidden="true" size={18} weight="bold" />
           </button>
           <label className="min-w-0 flex-1 text-center">
             <span className="sr-only">Working weight</span>
             <input
-              className="w-full bg-transparent text-center text-[2.25rem] font-black leading-none tracking-display text-text-primary outline-none placeholder:text-text-faint"
+              className="w-full bg-transparent text-center text-2xl font-bold leading-none tracking-display text-text-primary outline-none placeholder:text-text-faint"
               inputMode="decimal"
               autoComplete="off"
               value={weight}
@@ -253,15 +300,23 @@ export function LiftLogging({
             disabled={parsedWeight === null || mutation.isPending}
             onClick={() => adjustWeight(5)}
           >
-            +
+            <Plus aria-hidden="true" size={18} weight="bold" />
           </button>
         </div>
-
-        <div className="mt-2.5 grid gap-2" style={{ gridTemplateColumns: `repeat(${lift.setCount}, minmax(0, 1fr))` }}>
+        <div
+          className="mt-2.5 grid gap-2"
+          style={{
+            gridTemplateColumns: `repeat(${lift.setCount}, minmax(0, 1fr))`,
+          }}
+        >
           {setResults.map((result, index) => (
             <label
               key={index}
-              className="rounded-card border border-border-subtle bg-surface-raised px-2 py-2.5 text-center focus-within:border-action"
+              className={`rounded-card border-[1.5px] bg-surface-raised px-2 py-2.5 text-center focus-within:border-action ${
+                parsedSets[index] !== null
+                  ? 'border-complete/50'
+                  : 'border-border-subtle'
+              }`}
             >
               <span className="sr-only">Set {index + 1} result</span>
               <input
@@ -293,7 +348,9 @@ export function LiftLogging({
             {mutation.error.message}
           </p>
         ) : validationMessage ? (
-          <p className="px-1 text-xs font-medium text-partial">{validationMessage}</p>
+          <p className="px-1 text-xs font-medium text-partial">
+            {validationMessage}
+          </p>
         ) : null}
       </div>
 
@@ -315,6 +372,13 @@ export function LiftLogging({
           {mutation.isPending ? 'Syncing…' : 'Save Lift Log'}
         </button>
       </footer>
+
+      {isProgressionOpen && progressionGuidance ? (
+        <ProgressionDrawer
+          guidance={progressionGuidance}
+          onDismiss={dismissProgression}
+        />
+      ) : null}
     </section>
   );
 }
@@ -347,5 +411,7 @@ function parseNonNegativeWholeNumber(value: string): number | null {
 }
 
 function formatNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(3)));
+  return Number.isInteger(value)
+    ? String(value)
+    : String(Number(value.toFixed(3)));
 }

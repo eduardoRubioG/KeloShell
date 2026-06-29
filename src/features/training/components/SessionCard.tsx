@@ -1,3 +1,5 @@
+import { CaretRight } from '@phosphor-icons/react';
+
 import type {
   SessionStatus,
   SessionSummary,
@@ -59,12 +61,12 @@ export function SessionCard({ session, onSelect }: SessionCardProps) {
         >
           {session.completedLifts}/{session.totalLifts}
         </span>
-        <span
-          className="text-xl text-text-faint transition-transform group-hover:translate-x-0.5"
+        <CaretRight
+          className="text-text-faint transition-transform group-hover:translate-x-0.5"
           aria-hidden="true"
-        >
-          ›
-        </span>
+          size={18}
+          weight="bold"
+        />
       </span>
     </button>
   );
