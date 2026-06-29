@@ -9,6 +9,14 @@
     "CONNECTIVITY_SHEET_NAME": "_PWA_CONNECTIVITY",
     "CONNECTIVITY_SENTINEL": "KELOSHELL_CONNECTIVITY_V1",
     "ALLOW_CONNECTIVITY_WRITE_TEST": "true"
+  },
+  "env": {
+    "production": {
+      "vars": {
+        "SHEETS_TARGET_LABEL": "source",
+        "ALLOW_CONNECTIVITY_WRITE_TEST": "false"
+      }
+    }
   }
 }
 
