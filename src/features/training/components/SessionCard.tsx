@@ -20,9 +20,10 @@ const sessionAccentStyles: Record<SessionStatus, string> = {
 
 interface SessionCardProps {
   session: SessionSummary;
+  onSelect: () => void;
 }
 
-export function SessionCard({ session }: SessionCardProps) {
+export function SessionCard({ session, onSelect }: SessionCardProps) {
   const statusLabel =
     session.status === 'complete'
       ? 'Complete'
@@ -33,9 +34,11 @@ export function SessionCard({ session }: SessionCardProps) {
         : 'Not started';
 
   return (
-    <article
-      className={`flex w-full items-center gap-3.5 rounded-session border px-4 py-3.5 text-left ${sessionStyles[session.status]}`}
+    <button
+      type="button"
+      className={`group flex w-full items-center gap-3.5 rounded-session border px-4 py-3.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action ${sessionStyles[session.status]}`}
       aria-label={`${session.name}: ${statusLabel}, ${session.completedLifts} of ${session.totalLifts} lifts complete`}
+      onClick={onSelect}
     >
       <span className="min-w-0 flex-1">
         <span className="block text-lg font-extrabold tracking-tight">
@@ -48,11 +51,21 @@ export function SessionCard({ session }: SessionCardProps) {
         </span>
       </span>
       <span
-        className={`text-[1.375rem] font-black tracking-tight ${sessionAccentStyles[session.status]}`}
-        aria-hidden="true"
+        className="flex items-center gap-3"
       >
-        {session.completedLifts}/{session.totalLifts}
+        <span
+          className={`text-[1.375rem] font-black tracking-tight ${sessionAccentStyles[session.status]}`}
+          aria-hidden="true"
+        >
+          {session.completedLifts}/{session.totalLifts}
+        </span>
+        <span
+          className="text-xl text-text-faint transition-transform group-hover:translate-x-0.5"
+          aria-hidden="true"
+        >
+          ›
+        </span>
       </span>
-    </article>
+    </button>
   );
 }

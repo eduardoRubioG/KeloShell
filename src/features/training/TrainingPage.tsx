@@ -4,10 +4,16 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 
 import { fetchTrainingWeeks } from './api/training-weeks';
 import { SessionList } from './components/SessionList';
+import { SessionDetail } from './components/SessionDetail';
+import { LiftLogging } from './components/LiftLogging';
 import { TrainingWeekHeader } from './components/TrainingWeekHeader';
 
 export function TrainingPage() {
-  const { week: requestedWeekId } = useSearch({ from: '/' });
+  const {
+    week: requestedWeekId,
+    session: requestedSessionName,
+    lift: requestedLiftId,
+  } = useSearch({ from: '/' });
   const navigate = useNavigate({ from: '/' });
   const trainingWeeksQuery = useQuery({
     queryKey: ['training-weeks'],
@@ -20,6 +26,12 @@ export function TrainingPage() {
   const selectedWeek =
     requestedWeek ??
     response?.weeks.find((week) => week.id === response.defaultWeekId);
+  const selectedSession = selectedWeek?.sessions.find(
+    (session) => session.name === requestedSessionName
+  );
+  const selectedLift = selectedSession?.lifts.find(
+    (lift) => lift.id === requestedLiftId
+  );
 
   useEffect(() => {
     if (!response || requestedWeek) {
@@ -27,11 +39,52 @@ export function TrainingPage() {
     }
     if (response.defaultWeekId !== requestedWeekId) {
       void navigate({
-        search: { week: response.defaultWeekId ?? undefined },
+        search: {
+          week: response.defaultWeekId ?? undefined,
+          session: undefined,
+          lift: undefined,
+        },
         replace: true,
       });
     }
   }, [navigate, requestedWeek, requestedWeekId, response]);
+
+  useEffect(() => {
+    if (!response || !requestedSessionName || selectedSession) {
+      return;
+    }
+    void navigate({
+      search: { week: selectedWeek?.id, session: undefined, lift: undefined },
+      replace: true,
+    });
+  }, [
+    navigate,
+    requestedSessionName,
+    response,
+    selectedSession,
+    selectedWeek?.id,
+  ]);
+
+  useEffect(() => {
+    if (!response || !requestedLiftId || selectedLift) {
+      return;
+    }
+    void navigate({
+      search: {
+        week: selectedWeek?.id,
+        session: selectedSession?.name,
+        lift: undefined,
+      },
+      replace: true,
+    });
+  }, [
+    navigate,
+    requestedLiftId,
+    response,
+    selectedLift,
+    selectedSession?.name,
+    selectedWeek?.id,
+  ]);
 
   if (trainingWeeksQuery.isPending) {
     return <TrainingPageLoading />;
@@ -93,7 +146,64 @@ export function TrainingPage() {
       ? availableWeeks[currentAvailableIndex + 1]
       : availableWeeks.find((week) => week.id > selectedWeek.id);
   const selectWeek = (weekId: string) =>
-    navigate({ search: { week: weekId } });
+    navigate({ search: { week: weekId, session: undefined, lift: undefined } });
+
+  if (selectedWeek && selectedSession && selectedLift) {
+    return (
+      <LiftLogging
+        key={`${selectedWeek.id}-${selectedSession.name}-${selectedLift.id}-${selectedLift.revision}`}
+        week={selectedWeek}
+        session={selectedSession}
+        lift={selectedLift}
+        onBack={() =>
+          void navigate({
+            search: {
+              week: selectedWeek.id,
+              session: selectedSession.name,
+              lift: undefined,
+            },
+          })
+        }
+        onSynced={() =>
+          void navigate({
+            search: {
+              week: selectedWeek.id,
+              session: selectedSession.name,
+              lift: undefined,
+            },
+          })
+        }
+      />
+    );
+  }
+
+  if (selectedSession) {
+    return (
+      <SessionDetail
+        week={selectedWeek}
+        session={selectedSession}
+        syncedAt={trainingWeeksQuery.dataUpdatedAt}
+        onBack={() =>
+          void navigate({
+            search: {
+              week: selectedWeek.id,
+              session: undefined,
+              lift: undefined,
+            },
+          })
+        }
+        onSelectLift={(lift) =>
+          void navigate({
+            search: {
+              week: selectedWeek.id,
+              session: selectedSession.name,
+              lift: lift.id,
+            },
+          })
+        }
+      />
+    );
+  }
 
   return (
     <>
@@ -104,7 +214,18 @@ export function TrainingPage() {
         onSelectWeek={selectWeek}
       />
       {selectedWeek.availability === 'available' ? (
-        <SessionList sessions={selectedWeek.sessions} />
+        <SessionList
+          sessions={selectedWeek.sessions}
+          onSelectSession={(session) =>
+            void navigate({
+              search: {
+                week: selectedWeek.id,
+                session: session.name,
+                lift: undefined,
+              },
+            })
+          }
+        />
       ) : (
         <TrainingPageMessage
           eyebrow="Program Definition"

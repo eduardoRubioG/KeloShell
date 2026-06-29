@@ -117,8 +117,9 @@ class ValidGateway implements TrainingWeeksGateway {
       ['Week', 'Weight', 1, 2, 3, 4],
       [46201],
     ];
-    const dates = [[], [], [], [], [], [], ['6/28']];
-    const sheet = option === 'UNFORMATTED_VALUE' ? grid : dates;
+    const formattedGrid = grid.map((row) => [...row]);
+    formattedGrid[6][0] = '6/28';
+    const sheet = option === 'UNFORMATTED_VALUE' ? grid : formattedGrid;
     return [sheet, sheet, sheet, sheet];
   }
 }

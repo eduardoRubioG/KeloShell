@@ -1,4 +1,6 @@
 import type {
+  LiftDetail,
+  LiftLogRequest,
   SessionName,
   SessionStatus,
   SessionSummary,
@@ -23,6 +25,12 @@ export interface TrainingWeeksGateway {
     ranges: readonly string[],
     valueRenderOption: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
   ): Promise<unknown[][][]>;
+  writeRange(
+    sheetName: string,
+    range: string,
+    values: readonly unknown[]
+  ): Promise<void>;
+  clearRange(sheetName: string, range: string): Promise<void>;
 }
 
 export class SourceSpreadsheetSchemaError extends Error {
@@ -32,7 +40,15 @@ export class SourceSpreadsheetSchemaError extends Error {
   }
 }
 
+export class LiftLogConflictError extends Error {
+  constructor(message = 'The Lift Log changed since it was loaded.') {
+    super(message);
+    this.name = 'LiftLogConflictError';
+  }
+}
+
 interface ProgrammedLift {
+  id: string;
   groupStart: number;
   name: string;
   progression: string;
@@ -44,8 +60,10 @@ interface ProgrammedLift {
 
 interface ParsedWeek {
   id: string;
+  rowIndex: number;
   lifts: ProgrammedLift[] | null;
   values: unknown[];
+  displayValues: unknown[];
 }
 
 interface ParsedSession {
@@ -56,34 +74,11 @@ interface ParsedSession {
 export async function readTrainingWeeks(
   gateway: TrainingWeeksGateway
 ): Promise<TrainingWeeksResponse> {
-  const gridRanges = SESSION_NAMES.map((name) => `'${name}'!A:AP`);
-  const dateRanges = SESSION_NAMES.map((name) => `'${name}'!A:A`);
-  const unformattedGrids = await gateway.readRanges(
-    gridRanges,
-    'UNFORMATTED_VALUE'
-  );
-  const formattedDateColumns = await gateway.readRanges(
-    dateRanges,
-    'FORMATTED_VALUE'
-  );
-
-  if (
-    unformattedGrids.length !== SESSION_NAMES.length ||
-    formattedDateColumns.length !== SESSION_NAMES.length
-  ) {
-    throw new SourceSpreadsheetSchemaError(
-      'The required Workout Session tabs could not be read.'
-    );
-  }
-
-  const sessions = SESSION_NAMES.map((name, index) =>
-    parseSession(name, unformattedGrids[index], formattedDateColumns[index])
-  );
-  validateMatchingWeekSequences(sessions);
-
+  const sessions = await readParsedSessions(gateway);
   const weeks = sessions[0].weeks.map((week, weekIndex) =>
     summarizeWeek(week.id, weekIndex + 1, sessions, weekIndex)
   );
+  addLiftContext(weeks);
   const availableWeeks = weeks.filter(
     (week) => week.availability === 'available'
   );
@@ -98,14 +93,46 @@ export async function readTrainingWeeks(
   };
 }
 
+async function readParsedSessions(
+  gateway: TrainingWeeksGateway
+): Promise<ParsedSession[]> {
+  const gridRanges = SESSION_NAMES.map((name) => `'${name}'!A:AP`);
+  const formattedGridRanges = SESSION_NAMES.map((name) => `'${name}'!A:AP`);
+  const unformattedGrids = await gateway.readRanges(
+    gridRanges,
+    'UNFORMATTED_VALUE'
+  );
+  const formattedGrids = await gateway.readRanges(
+    formattedGridRanges,
+    'FORMATTED_VALUE'
+  );
+
+  if (
+    unformattedGrids.length !== SESSION_NAMES.length ||
+    formattedGrids.length !== SESSION_NAMES.length
+  ) {
+    throw new SourceSpreadsheetSchemaError(
+      'The required Workout Session tabs could not be read.'
+    );
+  }
+
+  const sessions = SESSION_NAMES.map((name, index) =>
+    parseSession(name, unformattedGrids[index], formattedGrids[index])
+  );
+  validateMatchingWeekSequences(sessions);
+  return sessions;
+}
+
 function parseSession(
   name: SessionName,
   rawRows: unknown[][],
-  formattedDateRows: unknown[][]
+  formattedRows: unknown[][]
 ): ParsedSession {
   const candidates: Array<{
     lifts: ProgrammedLift[] | null;
+    rowIndex: number;
     values: unknown[];
+    displayValues: unknown[];
     displayedDate: string;
     rawDate: unknown;
   }> = [];
@@ -134,6 +161,7 @@ function parseSession(
 
     const lifts = parseProgramDefinition(
       rawRows,
+      formattedRows,
       definitionRow,
       weekHeaderRow
     );
@@ -142,7 +170,7 @@ function parseSession(
       weekRow < nextDefinitionRow;
       weekRow += 1
     ) {
-      const displayedDate = cellText(formattedDateRows[weekRow]?.[0]);
+      const displayedDate = cellText(formattedRows[weekRow]?.[0]);
       const rawDate = rawRows[weekRow]?.[0];
       if (!displayedDate && isBlank(rawDate)) {
         continue;
@@ -154,7 +182,9 @@ function parseSession(
       }
       candidates.push({
         lifts,
+        rowIndex: weekRow,
         values: rawRows[weekRow] ?? [],
+        displayValues: formattedRows[weekRow] ?? [],
         displayedDate,
         rawDate,
       });
@@ -184,18 +214,22 @@ function parseSession(
     name,
     weeks: candidates.map((candidate, index) => ({
       id: ids[index],
+      rowIndex: candidate.rowIndex,
       lifts: candidate.lifts,
       values: candidate.values,
+      displayValues: candidate.displayValues,
     })),
   };
 }
 
 function parseProgramDefinition(
-  rows: unknown[][],
+  rawRows: unknown[][],
+  formattedRows: unknown[][],
   definitionRow: number,
   weekHeaderRow: number
 ): ProgrammedLift[] | null {
   const lifts: ProgrammedLift[] = [];
+  const idCounts = new Map<string, number>();
   let invalid = false;
 
   for (
@@ -203,16 +237,16 @@ function parseProgramDefinition(
     groupStart < LIFT_GROUP_WIDTH * MAX_LIFT_GROUPS;
     groupStart += LIFT_GROUP_WIDTH
   ) {
-    const name = cellText(rows[definitionRow]?.[groupStart + 1]);
+    const name = cellText(formattedRows[definitionRow]?.[groupStart + 1]);
     if (!name) {
       continue;
     }
 
     const fields = new Map<string, unknown>();
     for (let rowIndex = definitionRow + 1; rowIndex < weekHeaderRow; rowIndex += 1) {
-      const label = cellText(rows[rowIndex]?.[groupStart]);
+      const label = cellText(rawRows[rowIndex]?.[groupStart]);
       if (label) {
-        fields.set(label, rows[rowIndex]?.[groupStart + 1]);
+        fields.set(label, formattedRows[rowIndex]?.[groupStart + 1]);
       }
     }
 
@@ -222,7 +256,11 @@ function parseProgramDefinition(
       invalid = true;
       continue;
     }
+    const idBase = slugifyLiftName(name);
+    const occurrence = (idCounts.get(idBase) ?? 0) + 1;
+    idCounts.set(idBase, occurrence);
     lifts.push({
+      id: occurrence === 1 ? idBase : `${idBase}-${occurrence}`,
       groupStart,
       name,
       progression: cellText(fields.get('Progression')),
@@ -299,7 +337,8 @@ function summarizeWeek(
     summarizeSession(
       session.name,
       sessionWeeks[sessionIndex].lifts!,
-      sessionWeeks[sessionIndex].values
+      sessionWeeks[sessionIndex].values,
+      sessionWeeks[sessionIndex].displayValues
     )
   );
   const completedSessions = summaries.filter(
@@ -321,38 +360,367 @@ function summarizeWeek(
 function summarizeSession(
   name: SessionName,
   lifts: readonly ProgrammedLift[],
-  values: readonly unknown[]
+  values: readonly unknown[],
+  displayValues: readonly unknown[]
 ): SessionSummary {
-  let completedLifts = 0;
-  let hasLoggedData = false;
+  const liftDetails = lifts.map((lift) =>
+    detailLift(lift, values, displayValues)
+  );
+  const completedLifts = liftDetails.filter(
+    (lift) => lift.status === 'complete'
+  ).length;
 
-  for (const lift of lifts) {
-    const weight = values[lift.groupStart + 1];
-    const allSetCells = values.slice(
-      lift.groupStart + 2,
-      lift.groupStart + LIFT_GROUP_WIDTH
-    );
-    const requiredSetCells = allSetCells.slice(0, lift.setCount);
-    const complete =
-      isPositiveDecimal(weight) &&
-      requiredSetCells.length === lift.setCount &&
-      requiredSetCells.every(isNonNegativeWholeNumber);
-    if (complete) {
-      completedLifts += 1;
-    }
-    if (!isBlank(weight) || allSetCells.some((value) => !isBlank(value))) {
-      hasLoggedData = true;
-    }
+  return {
+    name,
+    status: summarizeStatuses(liftDetails.map((lift) => lift.status)),
+    completedLifts,
+    totalLifts: lifts.length,
+    lifts: liftDetails,
+  };
+}
+
+function detailLift(
+  lift: ProgrammedLift,
+  values: readonly unknown[],
+  displayValues: readonly unknown[]
+): LiftDetail {
+  const weight = values[lift.groupStart + 1];
+  const allSetCells = values.slice(
+    lift.groupStart + 2,
+    lift.groupStart + LIFT_GROUP_WIDTH
+  );
+  const requiredSetCells = allSetCells.slice(0, lift.setCount);
+  const complete =
+    isPositiveDecimal(weight) &&
+    requiredSetCells.length === lift.setCount &&
+    requiredSetCells.every(isNonNegativeWholeNumber);
+  const hasLoggedData =
+    !isBlank(weight) || allSetCells.some((value) => !isBlank(value));
+  const progressionOutcome = complete
+    ? evaluateProgression(lift, weight, requiredSetCells)
+    : null;
+
+  return {
+    id: lift.id,
+    revision: liftRevision(lift, weight, allSetCells),
+    name: lift.name,
+    status: complete ? 'complete' : hasLoggedData ? 'partial' : 'not-started',
+    progression: lift.progression,
+    setCount: lift.setCount,
+    repTarget: lift.repTarget,
+    proximityToFailure: lift.proximityToFailure,
+    cue: lift.cue,
+    weight: displayCell(displayValues[lift.groupStart + 1]),
+    setResults: Array.from({ length: lift.setCount }, (_, index) =>
+      displayCell(displayValues[lift.groupStart + 2 + index])
+    ),
+    previousLog: null,
+    progressionPrompt: null,
+    progressionAchievement: progressionOutcome
+      ? { message: 'Progression target reached for next week.' }
+      : null,
+  };
+}
+
+export async function writeLiftLog(
+  gateway: TrainingWeeksGateway,
+  request: LiftLogRequest
+): Promise<TrainingWeeksResponse> {
+  const sessions = await readParsedSessions(gateway);
+  const session = sessions.find((candidate) => candidate.name === request.session);
+  const week = session?.weeks.find((candidate) => candidate.id === request.weekId);
+  const lift = week?.lifts?.find((candidate) => candidate.id === request.liftId);
+
+  if (!session || !week || !lift) {
+    throw new LiftLogConflictError('The programmed lift is no longer available.');
   }
 
-  let status: SessionStatus = 'not-started';
-  if (completedLifts === lifts.length) {
-    status = 'complete';
-  } else if (hasLoggedData) {
-    status = 'partial';
+  const currentWeight = week.values[lift.groupStart + 1];
+  const currentSets = week.values.slice(
+    lift.groupStart + 2,
+    lift.groupStart + LIFT_GROUP_WIDTH
+  );
+  if (liftRevision(lift, currentWeight, currentSets) !== request.revision) {
+    throw new LiftLogConflictError();
   }
 
-  return { name, status, completedLifts, totalLifts: lifts.length };
+  const startColumn = columnName(lift.groupStart + 1);
+  const endColumn = columnName(lift.groupStart + 5);
+  const row = week.rowIndex + 1;
+  const range = `${startColumn}${row}:${endColumn}${row}`;
+
+  if (request.operation === 'clear') {
+    await gateway.clearRange(session.name, range);
+  } else {
+    if (
+      !isPositiveDecimal(request.weight) ||
+      request.setResults.length !== lift.setCount ||
+      !request.setResults.every(isNonNegativeWholeNumber)
+    ) {
+      throw new TypeError('A complete valid Lift Log is required.');
+    }
+    await gateway.writeRange(session.name, range, [
+      request.weight,
+      ...request.setResults,
+      ...Array.from({ length: 4 - request.setResults.length }, () => ''),
+    ]);
+  }
+
+  const response = await readTrainingWeeks(gateway);
+  const updatedLift = response.weeks
+    .find((candidate) => candidate.id === request.weekId)
+    ?.sessions.find((candidate) => candidate.name === request.session)
+    ?.lifts.find((candidate) => candidate.id === request.liftId);
+
+  const confirmed =
+    request.operation === 'clear'
+      ? updatedLift?.status === 'not-started'
+      : updatedLift?.status === 'complete' &&
+        Number(updatedLift.weight) === request.weight &&
+        updatedLift.setResults.every(
+          (result, index) => Number(result) === request.setResults[index]
+        );
+  if (!confirmed) {
+    throw new Error('The Source Spreadsheet did not confirm the Lift Log write.');
+  }
+  return response;
+}
+
+function addLiftContext(weeks: TrainingWeekSummary[]): void {
+  for (let weekIndex = 0; weekIndex < weeks.length; weekIndex += 1) {
+    const week = weeks[weekIndex];
+    if (week.availability !== 'available') {
+      continue;
+    }
+    for (const session of week.sessions) {
+      for (const lift of session.lifts) {
+        for (let priorIndex = weekIndex - 1; priorIndex >= 0; priorIndex -= 1) {
+          const priorWeek = weeks[priorIndex];
+          const priorSession = priorWeek.sessions.find(
+            (candidate) => candidate.name === session.name
+          );
+          if (!priorSession) {
+            continue;
+          }
+          const loggedCandidates = priorSession.lifts.filter(hasLoggedLiftData);
+          const previous = matchHistoricalLift(lift.name, loggedCandidates);
+          if (previous) {
+            lift.previousLog = {
+              weekId: priorWeek.id,
+              weekNumber: priorWeek.weekNumber,
+              weight: previous.weight ?? '',
+              setResults: previous.setResults.map((result) => result ?? '—'),
+            };
+            break;
+          }
+        }
+
+        for (let priorIndex = weekIndex - 1; priorIndex >= 0; priorIndex -= 1) {
+          const priorWeek = weeks[priorIndex];
+          const priorSession = priorWeek.sessions.find(
+            (candidate) => candidate.name === session.name
+          );
+          if (!priorSession) {
+            continue;
+          }
+          const previous = matchHistoricalLift(lift.name, priorSession.lifts);
+          if (!previous || previous.status !== 'complete') {
+            continue;
+          }
+          const outcome = evaluateProgression(
+            previous,
+            previous.weight,
+            previous.setResults
+          );
+          if (outcome) {
+            lift.progressionPrompt = {
+              message: `Eligible to progress based on Week ${priorWeek.weekNumber}.`,
+              recommendedWeight: outcome.recommendedWeight,
+              sourceWeekNumber: priorWeek.weekNumber,
+            };
+          }
+          break;
+        }
+      }
+    }
+  }
+}
+
+function hasLoggedLiftData(lift: LiftDetail): boolean {
+  return lift.weight !== null || lift.setResults.some((result) => result !== null);
+}
+
+function matchHistoricalLift(
+  currentName: string,
+  candidates: LiftDetail[]
+): LiftDetail | null {
+  const current = canonicalLiftName(currentName);
+  const exact = candidates.filter(
+    (candidate) => canonicalLiftName(candidate.name) === current
+  );
+  if (exact.length === 1) {
+    return exact[0];
+  }
+  if (exact.length > 1) {
+    return null;
+  }
+
+  const ranked = candidates
+    .map((candidate) => ({
+      candidate,
+      score: similarity(current, canonicalLiftName(candidate.name)),
+    }))
+    .sort((left, right) => right.score - left.score);
+  if (
+    !ranked[0] ||
+    ranked[0].score < 0.82 ||
+    (ranked[1] && ranked[0].score - ranked[1].score < 0.08)
+  ) {
+    return null;
+  }
+  return ranked[0].candidate;
+}
+
+function evaluateProgression(
+  lift: Pick<ProgrammedLift, 'progression' | 'repTarget'>,
+  rawWeight: unknown,
+  rawSetResults: readonly unknown[]
+): { recommendedWeight: string | null } | null {
+  const reps = rawSetResults.map((result) => Number(result));
+  const target = parseRepTarget(lift.repTarget);
+  const scheme = lift.progression
+    .toLowerCase()
+    .replace(/[–—]/g, '-')
+    .replace(/[^a-z0-9/]+/g, ' ')
+    .trim();
+  let eligible = false;
+  let recommendation = true;
+
+  if (scheme === 'dynamic dp' && target.maximum !== null) {
+    eligible = reps[0] >= target.maximum;
+  } else if (scheme === 'standard dp' && target.maximum !== null) {
+    eligible = reps.every((rep) => rep >= target.maximum!);
+  } else if (scheme === 'all set rep floor' || scheme === 'all set floor') {
+    eligible = target.floor !== null && reps.every((rep) => rep >= target.floor!);
+  } else if (scheme === 'top/backoff' && target.maximum !== null) {
+    eligible =
+      target.floor !== null &&
+      reps[0] >= target.floor &&
+      reps.slice(1).every((rep) => rep >= target.maximum!);
+  } else if (scheme === 'five five three amrap' || scheme === '5/5/3/amrap') {
+    eligible = reps.at(-1)! >= 3;
+    recommendation = false;
+  } else if (scheme === 'static rep linear' || scheme === 'block intensity') {
+    eligible = target.floor !== null && reps.every((rep) => rep >= target.floor!);
+  }
+
+  if (!eligible) {
+    return null;
+  }
+  const weight = Number(rawWeight);
+  const recommendedWeight = recommendation
+    ? String(Math.round((weight * 1.05) / 5) * 5)
+    : null;
+  return {
+    recommendedWeight,
+  };
+}
+
+function parseRepTarget(value: string): {
+  floor: number | null;
+  maximum: number | null;
+} {
+  const normalized = value.trim().replace(/[–—]/g, '-');
+  const bounded = /^(\d+)\s*-\s*(\d+)$/.exec(normalized);
+  if (bounded) {
+    return { floor: Number(bounded[1]), maximum: Number(bounded[2]) };
+  }
+  const floor = /^(\d+)\s*\+?$/.exec(normalized);
+  return floor
+    ? { floor: Number(floor[1]), maximum: normalized.includes('+') ? null : Number(floor[1]) }
+    : { floor: null, maximum: null };
+}
+
+function liftRevision(
+  lift: ProgrammedLift,
+  weight: unknown,
+  setResults: readonly unknown[]
+): string {
+  return stableHash(
+    JSON.stringify([
+      lift.id,
+      lift.name,
+      lift.progression,
+      lift.setCount,
+      lift.repTarget,
+      lift.proximityToFailure,
+      lift.cue,
+      cellText(weight),
+      ...setResults.map(cellText),
+    ])
+  );
+}
+
+function stableHash(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function slugifyLiftName(value: string): string {
+  return canonicalLiftName(value).replace(/\s+/g, '-') || 'lift';
+}
+
+function canonicalLiftName(value: string): string {
+  const aliases: Record<string, string> = {
+    bb: 'barbell',
+    db: 'dumbbell',
+    ng: 'neutral grip',
+  };
+  return value
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .map((token) => aliases[token] ?? token)
+    .join(' ');
+}
+
+function similarity(left: string, right: string): number {
+  const longest = Math.max(left.length, right.length);
+  if (longest === 0) {
+    return 1;
+  }
+  const rows = Array.from({ length: left.length + 1 }, (_, index) => index);
+  for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+    let diagonal = rows[0];
+    rows[0] = rightIndex;
+    for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+      const previous = rows[leftIndex];
+      rows[leftIndex] = Math.min(
+        rows[leftIndex] + 1,
+        rows[leftIndex - 1] + 1,
+        diagonal + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)
+      );
+      diagonal = previous;
+    }
+  }
+  return 1 - rows[left.length] / longest;
+}
+
+function columnName(zeroBasedIndex: number): string {
+  let value = zeroBasedIndex + 1;
+  let result = '';
+  while (value > 0) {
+    value -= 1;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
 }
 
 function summarizeStatuses(
@@ -432,6 +800,10 @@ function addDays(isoDate: string, days: number): string {
 
 function cellText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+}
+
+function displayCell(value: unknown): string | null {
+  return isBlank(value) ? null : cellText(value);
 }
 
 function isBlank(value: unknown): boolean {

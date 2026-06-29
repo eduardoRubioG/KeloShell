@@ -138,6 +138,27 @@ export class GoogleSheetsClient {
     });
   }
 
+  async writeRange(
+    sheetName: string,
+    range: string,
+    values: readonly unknown[]
+  ): Promise<void> {
+    await this.sheetsRequest(
+      `/values/${this.range(sheetName, range)}?valueInputOption=RAW`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ values: [[...values]] }),
+      }
+    );
+  }
+
+  async clearRange(sheetName: string, range: string): Promise<void> {
+    await this.sheetsRequest(`/values/${this.range(sheetName, range)}:clear`, {
+      method: 'POST',
+      body: '{}',
+    });
+  }
+
   async readRanges(
     ranges: readonly string[],
     valueRenderOption: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'

@@ -1,7 +1,7 @@
 # Source Spreadsheet schema
 
-This document records the Source Spreadsheet structure used by the read-only
-Training Week slice. The server adapter owns this mapping; browser code must
+This document records the Source Spreadsheet structure used by the Training
+Week and Lift Logging slices. The server adapter owns this mapping; browser code must
 only use the domain contract from `src/contracts/training.ts`.
 
 ## Workout Session tabs
@@ -44,5 +44,21 @@ that does not satisfy those rules is partial. Completion is derived at read
 time and is never written to the Source Spreadsheet.
 
 Existing malformed values remain Source Spreadsheet data. This read slice uses
-them only to derive partial status; future detail views must display them
-faithfully rather than silently rewriting them.
+them to derive partial status and returns their text values to the read-only
+Workout Session detail view. The PWA displays those values without silently
+rewriting them. The adapter uses unformatted values for completion validation
+and formatted values for display so date-formatted rep ranges and other sheet
+formatting remain readable.
+
+## Lift Log writes
+
+The browser identifies a lift with a server-generated semantic ID and revision;
+sheet row and column coordinates remain private to the server adapter. Before a
+write, the adapter re-reads the current Program Definition and rejects stale
+revisions rather than overwriting coach-side changes.
+
+A save writes the selected lift's weight and four result cells in one range.
+Only the programmed set results may contain values; unused result cells are
+blanked. A clear removes all five cells. Both operations are followed by a full
+read, and the API reports success only when the resulting Lift Log is confirmed
+from the Source Spreadsheet.

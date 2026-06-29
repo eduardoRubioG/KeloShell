@@ -141,4 +141,39 @@ describe('GoogleSheetsClient', () => {
       'UNFORMATTED_VALUE'
     );
   });
+
+  it('writes and clears a contiguous Lift Log range', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ access_token: 'token-value', expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(Response.json({ updatedCells: 5 }))
+      .mockResolvedValueOnce(Response.json({ clearedRange: "'Upper A'!B7:F7" }));
+    const client = new GoogleSheetsClient(
+      {
+        clientEmail: 'test@example.iam.gserviceaccount.com',
+        privateKey: await privateKeyPem(),
+        spreadsheetId: 'replica-id',
+      },
+      request,
+      () => 1_700_000_000_000
+    );
+
+    await client.writeRange('Upper A', 'B7:F7', [100, 8, 8, 7, '']);
+    await client.clearRange('Upper A', 'B7:F7');
+
+    expect(request.mock.calls[1][1]).toMatchObject({
+      method: 'PUT',
+      body: JSON.stringify({ values: [[100, 8, 8, 7, '']] }),
+    });
+    expect(String(request.mock.calls[1][0])).toContain('valueInputOption=RAW');
+    expect(request.mock.calls[2][1]).toMatchObject({
+      method: 'POST',
+      body: '{}',
+    });
+    expect(String(request.mock.calls[2][0])).toContain(
+      "'Upper%20A'!B7%3AF7:clear"
+    );
+  });
 });

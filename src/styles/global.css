@@ -91,6 +91,24 @@ button {
   cursor: pointer;
 }
 
+@keyframes progression-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+    box-shadow: 0 0 0 rgb(52 210 123 / 0);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    box-shadow: 0 0 2rem rgb(52 210 123 / 0.16);
+  }
+}
+
+.progression-glow {
+  animation: progression-arrive 320ms ease-out both;
+  box-shadow: 0 0 2rem rgb(52 210 123 / 0.16);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

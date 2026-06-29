@@ -117,8 +117,12 @@ Access to the **PWA** and its writes governed by Cloudflare Access and the priva
 _Avoid_: app login, user account
 
 **Progression Prompt**:
-An advisory message derived from the coach-authored progression scheme indicating that a lift appears eligible for a future weight increase.
+An advisory message shown in a current **Training Week** when the nearest earlier **Complete Lift Log** for the same **Workout Session** and **Lift Identity** met its coach-authored progression scheme.
 _Avoid_: progression automation, prescription, coaching decision
+
+**Progression Achievement**:
+An advisory confirmation that the current **Complete Lift Log** met its coach-authored progression scheme and can inform a later **Progression Prompt**.
+_Avoid_: automatic increase, completed progression
 
 **Next-Weight Recommendation**:
 An advisory **Lift Weight** calculated from a triggered **Progression Prompt**.
@@ -282,11 +286,16 @@ _Avoid_: incomplete check-in
 - The **PWA** may show **Progression Prompts** derived from the **Program Definition**
 - **Progression Prompts** are shown only for **Supported Progression Schemes**
 - A **Progression Prompt** does not change the **Program Definition** or future **Lift Logs**
-- A **Progression Prompt** requires a **Complete Lift Log**
+- A **Progression Prompt** requires an earlier **Complete Lift Log**
+- A **Progression Achievement** requires the current **Complete Lift Log**
+- A **Progression Prompt** uses the nearest earlier complete matching performance and does not skip past a non-qualifying **Complete Lift Log**
+- Partial or missing earlier **Lift Logs** are skipped when finding the performance for a **Progression Prompt**
+- Earlier performance is evaluated against the **Program Definition** active for that earlier **Lift Log**
+- A **Progression Prompt** and **Progression Achievement** may be shown together
 - A **Progression Prompt** includes a numeric next-weight suggestion only when the **Program Definition** explicitly provides the increment
 - The **PWA** shows no progression-related prompt when progression conditions are not met
 - A **Progression Prompt** may show an approximate five percent next-weight recommendation when its progression condition is met, unless the **Program Definition** provides a more specific increment
-- A **Next-Weight Recommendation** uses the current **Lift Weight** increased by five percent and rounded to the nearest five in the **Source Spreadsheet**'s implicit unit unless the **Program Definition** provides a more specific increment
+- A **Next-Weight Recommendation** uses the earlier qualifying **Lift Weight** increased by five percent and rounded to the nearest five in the **Source Spreadsheet**'s implicit unit unless that earlier **Program Definition** provides a more specific increment
 - The MVP does not model the **RM Calculator**
 - **Five-Five-Three-AMRAP** can show an eligibility **Progression Prompt** but does not use the generic five percent **Next-Weight Recommendation**
 - **Volume Ramp** and **Intensity Ramp** do not show **Progression Prompts** unless the **Source Spreadsheet** provides enough phase context to evaluate them
