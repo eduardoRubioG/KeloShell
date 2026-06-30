@@ -17,6 +17,7 @@ import type {
   TrainingWeeksResponse,
 } from '../../../contracts/training';
 import { saveLiftLog } from '../api/training-weeks';
+import { formatNumber, parsePositiveDecimal } from '../../../shared/parse-number';
 import { isLiftScheduledForFilming } from '../filming-schedule';
 import { getProgressionGuidance } from '../progression-guidance';
 import { ProgressionDrawer } from './ProgressionDrawer';
@@ -394,24 +395,10 @@ function ContextValue({ value, label }: { value: string; label: string }) {
   );
 }
 
-function parsePositiveDecimal(value: string): number | null {
-  if (!/^\d+(?:\.\d+)?$/.test(value.trim())) {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
 function parseNonNegativeWholeNumber(value: string): number | null {
   if (!/^\d+$/.test(value.trim())) {
     return null;
   }
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-function formatNumber(value: number): string {
-  return Number.isInteger(value)
-    ? String(value)
-    : String(Number(value.toFixed(3)));
 }

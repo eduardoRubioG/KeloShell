@@ -8,13 +8,9 @@ import type {
   TrainingWeeksResponse,
   TrainingWeekSummary,
 } from '../../src/contracts/training';
+import { SESSION_NAMES, SourceSpreadsheetSchemaError } from './config';
 
-export const SESSION_NAMES = [
-  'Upper A',
-  'Lower A',
-  'Upper B',
-  'Lower B',
-] as const satisfies readonly SessionName[];
+export { SESSION_NAMES, SourceSpreadsheetSchemaError } from './config';
 
 const LIFT_GROUP_WIDTH = 6;
 const MAX_LIFT_GROUPS = 7;
@@ -31,13 +27,6 @@ export interface TrainingWeeksGateway {
     values: readonly unknown[]
   ): Promise<void>;
   clearRange(sheetName: string, range: string): Promise<void>;
-}
-
-export class SourceSpreadsheetSchemaError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SourceSpreadsheetSchemaError';
-  }
 }
 
 export class LiftLogConflictError extends Error {
