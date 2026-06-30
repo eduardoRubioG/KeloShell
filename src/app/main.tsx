@@ -5,6 +5,7 @@ import { RouterProvider } from '@tanstack/react-router';
 
 import { queryClient } from './query-client';
 import { router } from './router';
+import { UpdatePrompt } from '../components/UpdatePrompt';
 import '../styles/global.css';
 
 const rootElement = document.getElementById('root');
@@ -17,6 +18,7 @@ createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      <UpdatePrompt />
     </QueryClientProvider>
   </StrictMode>
 );

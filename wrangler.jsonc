@@ -4,19 +4,33 @@
   "pages_build_output_dir": "./dist",
   "compatibility_date": "2026-06-28",
   "compatibility_flags": ["nodejs_compat"],
+  "kv_namespaces": [
+    {
+      "binding": "PUSH_KV",
+      "id": "7d64d6b1104044c383265478867b8e52",
+      "preview_id": "81682f7da8954fa0b881f4b7b23b5bb7",
+    },
+  ],
   "vars": {
     "SHEETS_TARGET_LABEL": "replica",
     "CONNECTIVITY_SHEET_NAME": "_PWA_CONNECTIVITY",
     "CONNECTIVITY_SENTINEL": "KELOSHELL_CONNECTIVITY_V1",
-    "ALLOW_CONNECTIVITY_WRITE_TEST": "true"
+    "ALLOW_CONNECTIVITY_WRITE_TEST": "true",
+    // Run: npx web-push generate-vapid-keys
+    // Paste the Public Key below, then store the Private Key as a secret:
+    //   npx wrangler pages secret put VAPID_PRIVATE_KEY
+    "VAPID_PUBLIC_KEY": "BNYl33LuklS1NYrGhH1wi9SaWgeTabIHRVevlcuzA9j7D3SVFkd6q1i1M0DAKjiITtJHCy5jzzYSc4jjCoBYMik",
+    "VAPID_SUBJECT": "mailto:eduardo.rubio.jr85@gmail.com",
   },
   "env": {
     "production": {
       "vars": {
         "SHEETS_TARGET_LABEL": "source",
-        "ALLOW_CONNECTIVITY_WRITE_TEST": "false"
-      }
-    }
-  }
+        "ALLOW_CONNECTIVITY_WRITE_TEST": "false",
+        "VAPID_PUBLIC_KEY": "BNYl33LuklS1NYrGhH1wi9SaWgeTabIHRVevlcuzA9j7D3SVFkd6q1i1M0DAKjiITtJHCy5jzzYSc4jjCoBYMik",
+        "VAPID_SUBJECT": "mailto:eduardo.rubio.jr85@gmail.com",
+      },
+    },
+  },
 }
 

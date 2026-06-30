@@ -1,6 +1,7 @@
 import {
   Barbell,
   ClockCounterClockwise,
+  GearSix,
   PersonSimple,
 } from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
@@ -8,7 +9,7 @@ import { Link, useRouterState } from '@tanstack/react-router';
 
 interface NavigationItem {
   label: string;
-  to: '/' | '/body' | '/history';
+  to: '/' | '/body' | '/history' | '/settings';
   icon: ReactNode;
 }
 
@@ -29,6 +30,11 @@ const navigationItems: readonly NavigationItem[] = [
     icon: (
       <ClockCounterClockwise aria-hidden="true" size={20} weight="bold" />
     ),
+  },
+  {
+    label: 'Settings',
+    to: '/settings',
+    icon: <GearSix aria-hidden="true" size={20} weight="bold" />,
   },
 ] as const;
 

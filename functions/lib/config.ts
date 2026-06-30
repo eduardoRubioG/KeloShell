@@ -9,6 +9,8 @@ export const SESSION_NAMES = [
   'Lower B',
 ] as const satisfies readonly SessionName[];
 
+export const PUSH_SUBSCRIPTIONS_KEY = 'push:subscriptions';
+
 export class SourceSpreadsheetSchemaError extends Error {
   constructor(message: string) {
     super(message);

@@ -23,6 +23,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       strategies: 'injectManifest',
+      registerType: 'prompt',
       injectManifest: {
         swSrc: 'public/sw.js',
         swDest: 'dist/sw.js',
