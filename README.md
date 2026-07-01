@@ -64,10 +64,16 @@ Non-secret connectivity settings are versioned in `wrangler.jsonc`. Do not add `
 ```bash
 npm run dev       # build and run the complete Pages app locally
 npm run dev:ui    # Vite UI only
+npm run dev:host  # expose the Vite UI on your local network for phone testing
 npm test          # unit and failure-path tests
 npm run build     # frontend and Worker typechecks, then production build
 npm run deploy    # build and deploy with Wrangler
 ```
+
+To open the UI on a phone connected to the same network, run
+`npm run dev:host` and use the Network URL printed by Vite. This serves only the
+frontend: `/api/*` requests are unavailable, and the PWA features that require a
+secure context may require HTTPS.
 
 The IDE launch task and `npm run start-remote` also run the complete Pages app
 on port 5173. Use `npm run dev:ui` only when API calls are intentionally out of
