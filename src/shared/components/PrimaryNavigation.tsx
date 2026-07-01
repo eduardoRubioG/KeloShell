@@ -45,7 +45,7 @@ export function PrimaryNavigation() {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-10 mx-auto flex w-full max-w-app border-t border-border-subtle bg-nav/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl sm:border-x"
+      className="z-10 flex w-full shrink-0 border-t border-border-subtle bg-nav/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl"
       aria-label="Primary navigation"
     >
       {navigationItems.map((item) => {
