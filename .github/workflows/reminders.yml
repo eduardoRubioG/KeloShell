@@ -34,9 +34,32 @@ jobs:
           if [ "$FORCE" = "true" ]; then
             DISPATCH_URL="${DISPATCH_URL}?force=true"
           fi
-          curl --fail-with-body --silent --show-error \
+          # Do NOT follow redirects: a 3xx here means the request was diverted
+          # (edge redirect or Access login) before reaching the JSON dispatcher.
+          # Capture status + sanitized redirect target so a 302 is diagnosable
+          # instead of being silently swallowed as a "success".
+          body="$(mktemp)"
+          status="$(curl --silent --show-error \
+            --output "$body" \
+            --write-out '%{http_code} %{redirect_url}' \
             --request POST \
             --header "Authorization: Bearer ${DISPATCH_TOKEN}" \
             --header "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
             --header "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
-            "$DISPATCH_URL"
+            "$DISPATCH_URL")"
+          http_code="${status%% *}"
+          redirect_url="${status#* }"
+          # Strip the query string (repo is public); keep scheme/host/path only.
+          redirect_target="${redirect_url%%\?*}"
+          echo "HTTP status: ${http_code}"
+          if [ -n "$redirect_target" ]; then
+            echo "Redirect target (query stripped): ${redirect_target}"
+          fi
+          echo "Response body:"
+          cat "$body"
+          echo
+          # Only a 2xx JSON response from the dispatcher counts as success.
+          case "$http_code" in
+            2*) exit 0 ;;
+            *)  echo "::error::Dispatch did not reach the function (HTTP ${http_code})"; exit 1 ;;
+          esac
