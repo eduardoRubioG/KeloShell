@@ -1,0 +1,42 @@
+name: Scheduled reminders
+
+on:
+  schedule:
+    # 7am America/New_York is 11:00 UTC in daylight time and 12:00 UTC in standard time.
+    # Retry through each candidate hour because GitHub scheduled runs can be delayed.
+    - cron: '0,15,30,45 11,12 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Evaluate today's reminders outside the 7am window
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: scheduled-reminders
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch due reminders
+        env:
+          DISPATCH_URL: ${{ secrets.REMINDER_DISPATCH_URL }}
+          DISPATCH_TOKEN: ${{ secrets.REMINDER_DISPATCH_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          FORCE: ${{ inputs.force || 'false' }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            DISPATCH_URL="${DISPATCH_URL}?force=true"
+          fi
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            --header "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+            --header "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+            "$DISPATCH_URL"

@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import type { PushSubscriptionPayload } from '../../src/contracts/push';
 import {
   addSubscription,
+  listDeliveredReminders,
   listSubscriptions,
   pruneSubscriptions,
+  recordDeliveredReminders,
   removeSubscription,
 } from './push-store';
 
@@ -102,5 +104,28 @@ describe('pruneSubscriptions', () => {
     await addSubscription(kv, sub('https://a.example/push/1'));
     await pruneSubscriptions(kv, []);
     expect(await listSubscriptions(kv)).toHaveLength(1);
+  });
+});
+
+describe('reminder delivery records', () => {
+  it('records delivered kinds without duplicates', async () => {
+    const kv = makeMockKV();
+    await recordDeliveredReminders(kv, '2026-07-01', ['bodyweight']);
+    await recordDeliveredReminders(kv, '2026-07-01', [
+      'bodyweight',
+      'measurement',
+    ]);
+
+    expect(await listDeliveredReminders(kv, '2026-07-01')).toEqual([
+      'bodyweight',
+      'measurement',
+    ]);
+  });
+
+  it('isolates delivery records by Local Calendar Date', async () => {
+    const kv = makeMockKV();
+    await recordDeliveredReminders(kv, '2026-07-01', ['bodyweight']);
+
+    expect(await listDeliveredReminders(kv, '2026-07-02')).toEqual([]);
   });
 });

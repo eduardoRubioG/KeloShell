@@ -12,6 +12,7 @@ These values are versioned in [`wrangler.jsonc`](../wrangler.jsonc):
 - `CONNECTIVITY_SHEET_NAME`
 - `CONNECTIVITY_SENTINEL`
 - `ALLOW_CONNECTIVITY_WRITE_TEST`
+- `REMINDER_TIME_ZONE`
 
 For production, override these values:
 
@@ -27,6 +28,7 @@ Set these as production secrets or environment variables for the Pages project:
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL`
 - `GOOGLE_PRIVATE_KEY`
 - `GOOGLE_SPREADSHEET_ID`
+- `REMINDER_DISPATCH_TOKEN`
 
 The service account email and private key stay the same as in replica testing. Only the spreadsheet ID changes at cutover.
 
@@ -51,6 +53,8 @@ GOOGLE_SERVICE_ACCOUNT_EMAIL=<service-account-email-from-google-cloud>
 GOOGLE_PRIVATE_KEY=<private-key-from-the-same-service-account-json>
 GOOGLE_SPREADSHEET_ID=<source-spreadsheet-id>
 ALLOW_CONNECTIVITY_WRITE_TEST=false
+REMINDER_TIME_ZONE=America/New_York
+REMINDER_DISPATCH_TOKEN=<same-random-token-as-the-GitHub-Actions-secret>
 ```
 
 Keep the private key exactly as exported from Google. If it contains escaped newlines (`\n`), preserve them.

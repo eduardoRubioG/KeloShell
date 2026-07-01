@@ -5,7 +5,10 @@ dev-dist
 build
 types
 .idea
-.github
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/reminders.yml
 .dev.vars
 .dev.vars.*
 !.dev.vars.example

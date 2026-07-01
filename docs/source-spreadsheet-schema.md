@@ -1,8 +1,21 @@
 # Source Spreadsheet schema
 
 This document records the Source Spreadsheet structure used by the Training
-Week and Lift Logging slices. The server adapter owns this mapping; browser code must
+Week, Lift Logging, and reminder slices. The server adapter owns this mapping; browser code must
 only use the domain contract from `src/contracts/training.ts`.
+
+## Reminder source data
+
+The `Tracking '26` tab contains both reminder sources. Daily Bodyweight dates
+and values are under the `Date` and `Weight` headers in columns A:B. A
+Bodyweight Reminder is due when today's Local Calendar Date exists and its
+weight is not a positive decimal.
+
+Measurement Check-In dates are the yearless month/day labels under the `Month`
+header in column G (for example, `July 1st`). A Measurement Reminder is due
+when one of those labels matches today's month and day. The adapter also accepts
+a Google Sheets date serial in this column so a formatting change does not
+silently disable reminders.
 
 ## Workout Session tabs
 

@@ -59,6 +59,29 @@ Wrangler serves the built PWA and Pages Function together. Use `npm run dev:ui` 
 
 Non-secret connectivity settings are versioned in `wrangler.jsonc`. Do not add `LOCAL_AUTH_BYPASS` to any deployed environment.
 
+## Scheduled reminders
+
+The production workflow evaluates Bodyweight Reminder and Measurement Reminder
+at 7am in `America/New_York`. It retries every 15 minutes during the possible
+UTC windows; the dispatch endpoint enforces local time and stores successful
+delivery kinds in KV so retries do not notify twice.
+
+Configure these Cloudflare Pages secrets:
+
+- `REMINDER_DISPATCH_TOKEN` — a long random bearer token shared only with GitHub Actions
+- the existing Google, VAPID, and `PUSH_KV` bindings used by the app
+
+Create a Cloudflare Access service token allowed to reach the deployed Pages
+application, then configure these GitHub Actions repository secrets:
+
+- `REMINDER_DISPATCH_URL` — the production URL ending in `/api/push/dispatch-reminders`
+- `REMINDER_DISPATCH_TOKEN` — the same value configured in Cloudflare Pages
+- `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` — the Access service token
+
+Run the `Scheduled reminders` workflow manually with `force` enabled to verify
+the endpoint outside 7am. A forced run still evaluates today's spreadsheet
+conditions and respects the per-day delivery record.
+
 ## Commands
 
 ```bash

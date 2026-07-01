@@ -31,8 +31,13 @@ All four routes sit behind the same Cloudflare Access / localhost-bypass auth pa
 **Service worker**
 `public/sw.js` handles `push` events (parses the JSON payload, calls `showNotification` with rich options: vibrate, badge, requireInteraction, and Open/Dismiss actions) and `notificationclick` events (focuses or opens the PWA and clears the app badge).
 
-**Scheduling — deferred**
-Cloudflare Pages Functions have no cron support. Time-based reminders (Bodyweight Reminder, Measurement Reminder) require a separate scheduler. The chosen approach for a future iteration is a GitHub Actions cron job calling a secret-token-protected dispatch endpoint that reuses `functions/lib/web-push.ts`. The test endpoint is intentionally designed as the prototype for this dispatcher.
+**Scheduling — GitHub Actions dispatcher**
+Cloudflare Pages Functions have no cron support. A GitHub Actions workflow calls
+a secret-token-protected dispatch endpoint during both UTC hours that can
+contain 7am in `America/New_York`. The endpoint enforces the local 7am window,
+reads the Source Spreadsheet, sends only due reminders, and records successful
+deliveries in KV by Local Calendar Date and reminder kind. Repeated scheduler
+runs therefore provide retry tolerance without duplicate notifications.
 
 ## VAPID key management
 
@@ -45,6 +50,6 @@ Cloudflare Pages Functions have no cron support. Time-based reminders (Bodyweigh
 
 - Push subscriptions are tied to the VAPID keypair. Rotating the keypair invalidates all existing subscriptions; Eduardo must re-enable notifications on each device.
 - Each installed PWA instance (device/browser) is its own subscription. Re-installing the PWA or clearing site data invalidates the subscription; the stale endpoint is pruned automatically on the next send attempt.
-- Cloudflare Pages Functions cannot send notifications on a schedule. All time-based reminders require the future GitHub Actions cron dispatcher.
+- Scheduled delivery depends on GitHub Actions and a Cloudflare Access service token. GitHub schedules are best-effort, so the workflow retries during the 7am local hour rather than assuming exact execution at 7:00:00.
 - iOS push requires the PWA to be installed via Safari (iOS 16.4+). Chrome on iOS uses WebKit and follows the same constraint. Not currently targeted.
 - The Web Crypto aes128gcm implementation has no external runtime dependencies and is fully unit-testable in the Workers environment.

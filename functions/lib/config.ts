@@ -10,6 +10,7 @@ export const SESSION_NAMES = [
 ] as const satisfies readonly SessionName[];
 
 export const PUSH_SUBSCRIPTIONS_KEY = 'push:subscriptions';
+export const REMINDER_DELIVERY_KEY_PREFIX = 'push:reminders:';
 
 export class SourceSpreadsheetSchemaError extends Error {
   constructor(message: string) {
