@@ -28,11 +28,11 @@ export async function getNotificationStatus(): Promise<NotificationStatus> {
 export async function enableNotifications(): Promise<void> {
   if (!isSupported()) throw new Error('Push notifications are not supported on this device.');
 
-  const { publicKey } = await fetchVapidPublicKey();
-
   const permission = await Notification.requestPermission();
   if (permission === 'denied') throw new Error('Notification permission was denied.');
   if (permission !== 'granted') throw new Error('Notification permission was not granted.');
+
+  const { publicKey } = await fetchVapidPublicKey();
 
   const registration = await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.subscribe({

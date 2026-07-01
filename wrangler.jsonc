@@ -24,6 +24,12 @@
   },
   "env": {
     "production": {
+      "kv_namespaces": [
+        {
+          "binding": "PUSH_KV",
+          "id": "7d64d6b1104044c383265478867b8e52",
+        },
+      ],
       "vars": {
         "SHEETS_TARGET_LABEL": "source",
         "ALLOW_CONNECTIVITY_WRITE_TEST": "false",
@@ -33,4 +39,3 @@
     },
   },
 }
-
