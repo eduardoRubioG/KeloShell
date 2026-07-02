@@ -53,3 +53,37 @@ runs therefore provide retry tolerance without duplicate notifications.
 - Scheduled delivery depends on GitHub Actions and a Cloudflare Access service token. GitHub schedules are best-effort, so the workflow retries during the 7am local hour rather than assuming exact execution at 7:00:00.
 - iOS push requires the PWA to be installed via Safari (iOS 16.4+). Chrome on iOS uses WebKit and follows the same constraint. Not currently targeted.
 - The Web Crypto aes128gcm implementation has no external runtime dependencies and is fully unit-testable in the Workers environment.
+
+## Troubleshooting: scheduled dispatch returns a Cloudflare Access 302
+
+If the reminder workflow (or a manual `curl`) to `/api/push/dispatch-reminders`
+returns an HTTP `302` redirecting to
+`https://<team>.cloudflareaccess.com/cdn-cgi/access/login/keloshell.pages.dev`,
+Cloudflare Access is rejecting the request before it reaches the function. The
+`302` login redirect carries a signed `meta` JWT in its query string; decode its
+payload (base64url) and read `service_token_status`:
+
+- `service_token_status: false` **and** the service token shows **"Not seen yet"**
+  in Zero Trust → Access → Service credentials → the request is not matching the
+  token at all. The most common cause is that the
+  `CF-Access-Client-Id` / `CF-Access-Client-Secret` **value contains the header
+  name too** — e.g. a GitHub secret set to `CF-Access-Client-Id: fbfe…access`
+  instead of just `fbfe…access`. Because the workflow interpolates the secret
+  into `--header "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"`, the header name
+  ends up doubled and the transmitted ID matches no token. Store **only the
+  value** in each secret. Rotating the token does not fix this — the secret value
+  was never the problem.
+- `service_token_status: true` but still `302` → the credentials are valid but no
+  `Service Auth` policy grants them. Confirm the policy Action is literally
+  `Service Auth` (not `Allow` with a service-token include), and that it lives on
+  the Access application whose destination matches `keloshell.pages.dev` (a bare
+  host with no path). Note there are overlapping apps for `*.keloshell.pages.dev`
+  and specific paths (`/manifest.json`, `/assets/icons/*`) — the wildcard does
+  **not** match the apex host.
+
+Once Access passes the request through, an HTTP `401`
+(`A valid reminder dispatch token is required.`) means the service token works
+and the function was reached — the request simply lacked the
+`Authorization: Bearer <REMINDER_DISPATCH_TOKEN>` header (the workflow sends it;
+a bare diagnostic `curl` does not). The workflow fails on any non-2xx response,
+so a green run means the dispatcher returned JSON.

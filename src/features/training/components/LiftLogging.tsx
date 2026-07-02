@@ -1,6 +1,8 @@
 import {
+  Barbell,
   CaretLeft,
   Camera,
+  CaretRight,
   Check,
   Info,
   Minus,
@@ -20,6 +22,7 @@ import { saveLiftLog } from '../api/training-weeks';
 import { formatNumber, parsePositiveDecimal } from '../../../shared/parse-number';
 import { isLiftScheduledForFilming } from '../filming-schedule';
 import { getProgressionGuidance } from '../progression-guidance';
+import { PlateCalculatorSheet } from './PlateCalculatorSheet';
 import { ProgressionDrawer } from './ProgressionDrawer';
 
 interface LiftLoggingProps {
@@ -47,7 +50,9 @@ export function LiftLogging({
     lift.repTarget
   );
   const progressionButtonRef = useRef<HTMLButtonElement>(null);
+  const plateCalcButtonRef = useRef<HTMLButtonElement>(null);
   const [isProgressionOpen, setIsProgressionOpen] = useState(false);
+  const [isPlateCalcOpen, setIsPlateCalcOpen] = useState(false);
   const [weight, setWeight] = useState(initialWeight);
   const [setResults, setSetResults] = useState(initialSets);
   const isDirty =
@@ -144,6 +149,11 @@ export function LiftLogging({
   const dismissProgression = () => {
     setIsProgressionOpen(false);
     window.requestAnimationFrame(() => progressionButtonRef.current?.focus());
+  };
+
+  const dismissPlateCalc = () => {
+    setIsPlateCalcOpen(false);
+    window.requestAnimationFrame(() => plateCalcButtonRef.current?.focus());
   };
 
   return (
@@ -304,6 +314,38 @@ export function LiftLogging({
             <Plus aria-hidden="true" size={18} weight="bold" />
           </button>
         </div>
+        {parsedWeight !== null && (
+          <button
+            ref={plateCalcButtonRef}
+            type="button"
+            className="mt-2.5 flex w-full items-center gap-3 rounded-control border border-action-border bg-action-soft px-3.5 py-2.5 transition-colors hover:bg-action-soft-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
+            aria-haspopup="dialog"
+            disabled={mutation.isPending}
+            onClick={() => setIsPlateCalcOpen(true)}
+          >
+            <Barbell
+              aria-hidden="true"
+              size={18}
+              weight="bold"
+              className="shrink-0 text-action"
+            />
+            <span className="flex-1 text-left">
+              <span className="block text-[0.8125rem] font-bold text-action">
+                View plate setup
+              </span>
+              <span className="mt-0.5 block font-mono text-[0.625rem] text-text-faint">
+                Which plates to load for {formatNumber(parsedWeight)} lb
+              </span>
+            </span>
+            <CaretRight
+              aria-hidden="true"
+              size={16}
+              weight="bold"
+              className="shrink-0 text-action"
+            />
+          </button>
+        )}
+
         <div
           className="mt-2.5 grid gap-2"
           style={{
@@ -378,6 +420,13 @@ export function LiftLogging({
         <ProgressionDrawer
           guidance={progressionGuidance}
           onDismiss={dismissProgression}
+        />
+      ) : null}
+
+      {isPlateCalcOpen && parsedWeight !== null ? (
+        <PlateCalculatorSheet
+          targetWeight={parsedWeight}
+          onDismiss={dismissPlateCalc}
         />
       ) : null}
     </section>
