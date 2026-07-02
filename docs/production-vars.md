@@ -28,9 +28,10 @@ Set these as production secrets or environment variables for the Pages project:
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL`
 - `GOOGLE_PRIVATE_KEY`
 - `GOOGLE_SPREADSHEET_ID`
+- `KELOSHELL_META_DB_SHEET`
 - `REMINDER_DISPATCH_TOKEN`
 
-The service account email and private key stay the same as in replica testing. Only the spreadsheet ID changes at cutover.
+The service account email and private key stay the same as in replica testing. Only the spreadsheet ID changes at cutover. `KELOSHELL_META_DB_SHEET` points to the separate KeloShell meta database spreadsheet (not the Source Spreadsheet).
 
 ## Before cutover
 
@@ -52,10 +53,16 @@ SHEETS_TARGET_LABEL=source
 GOOGLE_SERVICE_ACCOUNT_EMAIL=<service-account-email-from-google-cloud>
 GOOGLE_PRIVATE_KEY=<private-key-from-the-same-service-account-json>
 GOOGLE_SPREADSHEET_ID=<source-spreadsheet-id>
+KELOSHELL_META_DB_SHEET=<meta-db-spreadsheet-id>
 ALLOW_CONNECTIVITY_WRITE_TEST=false
 REMINDER_TIME_ZONE=America/New_York
 REMINDER_DISPATCH_TOKEN=<same-random-token-as-the-GitHub-Actions-secret>
 ```
+
+Before setting `KELOSHELL_META_DB_SHEET` in production:
+
+- Create a `Habits` tab in that spreadsheet with header `Date | Habit` in `A1:B1`.
+- Share the spreadsheet with the service account email as an Editor.
 
 Keep the private key exactly as exported from Google. If it contains escaped newlines (`\n`), preserve them.
 

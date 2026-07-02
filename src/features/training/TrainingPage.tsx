@@ -7,6 +7,8 @@ import { SessionList } from './components/SessionList';
 import { SessionDetail } from './components/SessionDetail';
 import { LiftLogging } from './components/LiftLogging';
 import { TrainingWeekHeader } from './components/TrainingWeekHeader';
+import { StreaksSection } from './components/StreaksSection';
+import { todayLocalIsoDate } from '../body/local-date';
 
 export function TrainingPage() {
   const {
@@ -213,6 +215,7 @@ export function TrainingPage() {
         nextWeekId={nextWeek?.id}
         onSelectWeek={selectWeek}
       />
+      <StreaksSection today={todayLocalIsoDate()} />
       {selectedWeek.availability === 'available' ? (
         <SessionList
           sessions={selectedWeek.sessions}

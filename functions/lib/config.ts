@@ -9,6 +9,9 @@ export const SESSION_NAMES = [
   'Lower B',
 ] as const satisfies readonly SessionName[];
 
+export const HABITS_SHEET_NAME = 'Habits';
+export const CREATINE_HABIT_KEY = 'creatine';
+
 export const PUSH_SUBSCRIPTIONS_KEY = 'push:subscriptions';
 export const REMINDER_DELIVERY_KEY_PREFIX = 'push:reminders:';
 
