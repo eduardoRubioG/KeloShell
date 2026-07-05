@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { PushNotificationPayload } from '../../../src/contracts/push';
 import type { ReminderGateway } from '../../lib/reminders';
+import type { HabitsGateway } from '../../lib/streaks';
 import { addSubscription } from '../../lib/push-store';
 import {
   handleDispatchRemindersRequest,
@@ -35,6 +36,18 @@ function makeGateway(weight: unknown, measurementDates: unknown[]): ReminderGate
   };
 }
 
+function makeHabitsGateway(creatineDates: readonly string[] = []): HabitsGateway {
+  return {
+    readRanges: async () => [
+      [['Date', 'Habit'], ...creatineDates.map((date) => [date, 'creatine'])],
+    ],
+    writeRange: async () => {},
+    clearRange: async () => {},
+  };
+}
+
+const noHabitsConfigured = () => makeHabitsGateway();
+
 function configuredEnv(kv: KVNamespace) {
   return {
     PUSH_KV: kv,
@@ -46,6 +59,13 @@ function configuredEnv(kv: KVNamespace) {
     GOOGLE_SPREADSHEET_ID: 'sheet-id',
     REMINDER_DISPATCH_TOKEN: 'dispatch-token',
     REMINDER_TIME_ZONE: 'America/New_York',
+  };
+}
+
+function configuredEnvWithHabits(kv: KVNamespace) {
+  return {
+    ...configuredEnv(kv),
+    KELOSHELL_META_DB_SHEET: 'meta-db-sheet-id',
   };
 }
 
@@ -75,6 +95,7 @@ describe('POST /api/push/dispatch-reminders', () => {
       {
         now: () => new Date('2026-07-01T09:00:00Z'),
         createGateway: () => makeGateway('', ['July 1st']),
+        createHabitsGateway: noHabitsConfigured,
         sendPush: vi.fn(),
       }
     );
@@ -103,6 +124,7 @@ describe('POST /api/push/dispatch-reminders', () => {
         // candidate cron slot.
         now: () => new Date('2026-07-01T13:59:00Z'),
         createGateway: () => makeGateway('', ['July 1st']),
+        createHabitsGateway: noHabitsConfigured,
         sendPush: async (_subscription, notification) => {
           notifications.push(notification);
           return { success: true, stale: false, status: 201 };
@@ -132,6 +154,7 @@ describe('POST /api/push/dispatch-reminders', () => {
       {
         now: () => new Date('2026-07-01T11:00:00Z'),
         createGateway: () => makeGateway('', ['July 1st']),
+        createHabitsGateway: noHabitsConfigured,
         sendPush: async (_subscription, notification) => {
           notifications.push(notification);
           return { success: true, stale: false, status: 201 };
@@ -161,6 +184,7 @@ describe('POST /api/push/dispatch-reminders', () => {
     const dependencies = {
       now: () => new Date('2026-07-01T11:00:00Z'),
       createGateway: () => makeGateway('', []),
+      createHabitsGateway: noHabitsConfigured,
       sendPush,
     };
 
@@ -191,12 +215,97 @@ describe('POST /api/push/dispatch-reminders', () => {
       {
         now: () => new Date('2026-07-01T15:00:00Z'),
         createGateway: () => makeGateway(225, []),
+        createHabitsGateway: noHabitsConfigured,
         sendPush: vi.fn(),
       }
     );
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ skipped: 'not-due' });
+  });
+
+  it('does not evaluate creatine before 9pm even if bodyweight is due', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+    const notifications: PushNotificationPayload[] = [];
+    const habitsGateway = vi.fn(() => makeHabitsGateway([]));
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnvWithHabits(kv),
+      {
+        now: () => new Date('2026-07-01T11:00:00Z'),
+        createGateway: () => makeGateway(225, []),
+        createHabitsGateway: habitsGateway,
+        sendPush: async (_subscription, notification) => {
+          notifications.push(notification);
+          return { success: true, stale: false, status: 201 };
+        },
+      }
+    );
+
+    expect(habitsGateway).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({ skipped: 'not-due' });
+  });
+
+  it('delivers a creatine reminder at 9pm when not logged today', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+    const notifications: PushNotificationPayload[] = [];
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnvWithHabits(kv),
+      {
+        // 21:00 UTC is 5pm EDT; use 2026-07-02T01:00:00Z for 9pm EDT on July 1st.
+        now: () => new Date('2026-07-02T01:00:00Z'),
+        createGateway: () => makeGateway(225, []),
+        createHabitsGateway: () => makeHabitsGateway([]),
+        sendPush: async (_subscription, notification) => {
+          notifications.push(notification);
+          return { success: true, stale: false, status: 201 };
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      date: '2026-07-01',
+      sent: 1,
+      reminders: ['creatine'],
+    });
+    expect(notifications.map((item) => item.title)).toEqual(['Creatine Reminder']);
+  });
+
+  it('does not remind about creatine already logged today', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnvWithHabits(kv),
+      {
+        now: () => new Date('2026-07-02T01:00:00Z'),
+        createGateway: () => makeGateway(225, []),
+        createHabitsGateway: () => makeHabitsGateway(['2026-07-01']),
+        sendPush: vi.fn(),
+      }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sent: 0,
+      skipped: 'not-due',
+    });
   });
 });
 

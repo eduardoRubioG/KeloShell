@@ -19,7 +19,7 @@ const MONTHS = new Map(
   ].map((month, index) => [month, index + 1])
 );
 
-export type ReminderKind = 'bodyweight' | 'measurement';
+export type ReminderKind = 'bodyweight' | 'measurement' | 'creatine';
 
 export interface ReminderGateway {
   readRanges(
@@ -91,6 +91,21 @@ export function reminderNotification(
       requireInteraction: true,
       actions: [
         { action: 'open', title: 'Log bodyweight' },
+        { action: 'dismiss', title: 'Dismiss' },
+      ],
+    };
+  }
+
+  if (kind === 'creatine') {
+    return {
+      title: 'Creatine Reminder',
+      body: "You haven't logged today's creatine yet.",
+      url: '/',
+      tag: `creatine-reminder-${localDate}`,
+      vibrate: [100, 50, 100],
+      requireInteraction: true,
+      actions: [
+        { action: 'open', title: 'Log creatine' },
         { action: 'dismiss', title: 'Dismiss' },
       ],
     };

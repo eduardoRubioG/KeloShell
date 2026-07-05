@@ -61,18 +61,23 @@ Non-secret connectivity settings are versioned in `wrangler.jsonc`. Do not add `
 
 ## Scheduled reminders
 
-The production workflow evaluates Bodyweight Reminder and Measurement Reminder
-no earlier than 7am in `America/New_York`. GitHub Actions schedules are
-best-effort and have been observed landing 1-3 hours late (or being coalesced
-to a single run for the day), so the dispatch endpoint fires on the first run
-at or after the local 7am hour rather than requiring an exact match — it
-stores successful delivery kinds in KV by Local Calendar Date so any later
-retries the same day do not notify twice.
+The production workflow evaluates three reminder kinds, each due no earlier
+than its own local hour in `America/New_York`:
+
+- Bodyweight Reminder and Measurement Reminder — 7am, read from the Source Spreadsheet
+- Creatine Reminder — 9pm, due when today has no `creatine` row in the Habits
+  sheet of the KeloShell meta database spreadsheet
+
+GitHub Actions schedules are best-effort and have been observed landing 1-3
+hours late (or being coalesced to a single run for the day), so the dispatch
+endpoint fires each kind on the first run at or after its local hour rather
+than requiring an exact match — it stores successful delivery kinds in KV by
+Local Calendar Date so any later retries the same day do not notify twice.
 
 Configure these Cloudflare Pages secrets:
 
 - `REMINDER_DISPATCH_TOKEN` — a long random bearer token shared only with GitHub Actions
-- the existing Google, VAPID, and `PUSH_KV` bindings used by the app
+- the existing Google, VAPID, `PUSH_KV`, and `KELOSHELL_META_DB_SHEET` bindings used by the app
 
 Create a Cloudflare Access service token allowed to reach the deployed Pages
 application, then configure these GitHub Actions repository secrets:
@@ -82,8 +87,9 @@ application, then configure these GitHub Actions repository secrets:
 - `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` — the Access service token
 
 Run the `Scheduled reminders` workflow manually with `force` enabled to verify
-the endpoint outside 7am. A forced run still evaluates today's spreadsheet
-conditions and respects the per-day delivery record.
+the endpoint outside its local time windows. A forced run still evaluates
+today's spreadsheet and habit conditions and respects the per-day delivery
+record.
 
 ## Commands
 

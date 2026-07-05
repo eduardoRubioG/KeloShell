@@ -33,15 +33,20 @@ All four routes sit behind the same Cloudflare Access / localhost-bypass auth pa
 
 **Scheduling — GitHub Actions dispatcher**
 Cloudflare Pages Functions have no cron support. A GitHub Actions workflow calls
-a secret-token-protected dispatch endpoint during both UTC hours that can
-contain 7am in `America/New_York`. GitHub scheduled runs have been observed
+a secret-token-protected dispatch endpoint during UTC hours that bracket both
+the Bodyweight/Measurement window (7am `America/New_York`) and the Creatine
+window (9pm `America/New_York`). GitHub scheduled runs have been observed
 landing 1-3 hours after every candidate slot (sometimes coalesced into a
-single run for the whole day), so the endpoint fires on the first run at or
-after the local 7am hour rather than requiring an exact hour match. It reads
-the Source Spreadsheet, sends only due reminders, and records successful
-deliveries in KV by Local Calendar Date and reminder kind. Repeated scheduler
-runs therefore provide retry tolerance without duplicate notifications, even
-when every run for the day is delayed well past 7am.
+single run for the whole day), so the endpoint evaluates each reminder kind
+independently against its own "no earlier than" local hour rather than
+requiring an exact hour match. Bodyweight and Measurement read the Source
+Spreadsheet; Creatine reads the `Habits` sheet in the separate KeloShell meta
+database spreadsheet (the same one `POST /api/creatine-log` writes to) and is
+due when today has no `creatine` row. Successful deliveries are recorded in KV
+by Local Calendar Date and reminder kind, so repeated scheduler runs — for
+either window, on the same or different calls — provide retry tolerance
+without duplicate notifications, even when every run for the day is delayed
+well past its target hour.
 
 ## VAPID key management
 
@@ -54,7 +59,8 @@ when every run for the day is delayed well past 7am.
 
 - Push subscriptions are tied to the VAPID keypair. Rotating the keypair invalidates all existing subscriptions; Eduardo must re-enable notifications on each device.
 - Each installed PWA instance (device/browser) is its own subscription. Re-installing the PWA or clearing site data invalidates the subscription; the stale endpoint is pruned automatically on the next send attempt.
-- Scheduled delivery depends on GitHub Actions and a Cloudflare Access service token. GitHub schedules are best-effort and can run hours late or be coalesced to one firing per day, so the dispatch endpoint treats "at or after local 7am" as due rather than requiring the run to land inside a specific hour.
+- Scheduled delivery depends on GitHub Actions and a Cloudflare Access service token. GitHub schedules are best-effort and can run hours late or be coalesced to one firing per day, so the dispatch endpoint treats "at or after" each reminder kind's local hour (7am for Bodyweight/Measurement, 9pm for Creatine) as due rather than requiring the run to land inside a specific hour.
+- The Creatine reminder depends on `KELOSHELL_META_DB_SHEET` being configured; if it is unset the dispatch endpoint silently skips creatine evaluation rather than failing Bodyweight/Measurement delivery.
 - iOS push requires the PWA to be installed via Safari (iOS 16.4+). Chrome on iOS uses WebKit and follows the same constraint. Not currently targeted.
 - The Web Crypto aes128gcm implementation has no external runtime dependencies and is fully unit-testable in the Workers environment.
 

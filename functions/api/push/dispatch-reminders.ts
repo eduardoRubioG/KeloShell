@@ -11,6 +11,7 @@ import {
   type ReminderGateway,
   type ReminderKind,
 } from '../../lib/reminders';
+import { readCreatineDates, type HabitsGateway } from '../../lib/streaks';
 import {
   listDeliveredReminders,
   listSubscriptions,
@@ -24,7 +25,8 @@ import {
 } from '../../lib/web-push';
 
 const DEFAULT_TIME_ZONE = 'America/New_York';
-const REMINDER_HOUR = 7;
+const BODY_TRACKING_REMINDER_HOUR = 7;
+const CREATINE_REMINDER_HOUR = 21;
 
 interface Env {
   PUSH_KV?: KVNamespace;
@@ -34,6 +36,7 @@ interface Env {
   GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
   GOOGLE_PRIVATE_KEY?: string;
   GOOGLE_SPREADSHEET_ID?: string;
+  KELOSHELL_META_DB_SHEET?: string;
   REMINDER_DISPATCH_TOKEN?: string;
   REMINDER_TIME_ZONE?: string;
 }
@@ -44,9 +47,16 @@ interface RequiredGoogleEnv {
   GOOGLE_SPREADSHEET_ID: string;
 }
 
+interface RequiredHabitsEnv {
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: string;
+  GOOGLE_PRIVATE_KEY: string;
+  KELOSHELL_META_DB_SHEET: string;
+}
+
 interface Dependencies {
   now: () => Date;
   createGateway: (env: RequiredGoogleEnv) => ReminderGateway;
+  createHabitsGateway: (env: RequiredHabitsEnv) => HabitsGateway;
   sendPush: (
     subscription: PushSubscriptionPayload,
     notification: PushNotificationPayload,
@@ -61,6 +71,12 @@ const defaultDependencies: Dependencies = {
       clientEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       privateKey: env.GOOGLE_PRIVATE_KEY,
       spreadsheetId: env.GOOGLE_SPREADSHEET_ID,
+    }),
+  createHabitsGateway: (env) =>
+    new GoogleSheetsClient({
+      clientEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      privateKey: env.GOOGLE_PRIVATE_KEY,
+      spreadsheetId: env.KELOSHELL_META_DB_SHEET,
     }),
   sendPush: sendWebPush,
 };
@@ -98,25 +114,42 @@ export async function handleDispatchRemindersRequest(
   }
 
   const force = new URL(request.url).searchParams.get('force') === 'true';
-  if (!force && local.hour < REMINDER_HOUR) {
-    return json({ date: local.date, sent: 0, reminders: [], skipped: 'outside-window' }, 200);
+  const activeReminders: ReminderKind[] = [];
+  let evaluatedAny = false;
+
+  if (force || local.hour >= BODY_TRACKING_REMINDER_HOUR) {
+    evaluatedAny = true;
+    try {
+      activeReminders.push(
+        ...(await evaluateReminders(dependencies.createGateway(google), local.date))
+      );
+    } catch (error) {
+      if (error instanceof SourceSpreadsheetSchemaError) {
+        return json(
+          { error: 'The Source Spreadsheet structure could not be interpreted.' },
+          422
+        );
+      }
+      console.error('[push/dispatch-reminders] spreadsheet read failed:', error);
+      return json({ error: 'The Source Spreadsheet could not be read.' }, 502);
+    }
   }
 
-  let activeReminders: ReminderKind[];
-  try {
-    activeReminders = await evaluateReminders(
-      dependencies.createGateway(google),
-      local.date
-    );
-  } catch (error) {
-    if (error instanceof SourceSpreadsheetSchemaError) {
-      return json(
-        { error: 'The Source Spreadsheet structure could not be interpreted.' },
-        422
+  const habits = configuredHabitsEnv(env);
+  if (habits && (force || local.hour >= CREATINE_REMINDER_HOUR)) {
+    evaluatedAny = true;
+    try {
+      const creatineDates = await readCreatineDates(
+        dependencies.createHabitsGateway(habits)
       );
+      if (!creatineDates.has(local.date)) activeReminders.push('creatine');
+    } catch (error) {
+      console.error('[push/dispatch-reminders] habits read failed:', error);
     }
-    console.error('[push/dispatch-reminders] spreadsheet read failed:', error);
-    return json({ error: 'The Source Spreadsheet could not be read.' }, 502);
+  }
+
+  if (!evaluatedAny) {
+    return json({ date: local.date, sent: 0, reminders: [], skipped: 'outside-window' }, 200);
   }
 
   const delivered = await listDeliveredReminders(env.PUSH_KV, local.date);
@@ -232,6 +265,21 @@ function configuredGoogleEnv(env: Env): RequiredGoogleEnv | null {
     GOOGLE_SERVICE_ACCOUNT_EMAIL: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     GOOGLE_PRIVATE_KEY: env.GOOGLE_PRIVATE_KEY,
     GOOGLE_SPREADSHEET_ID: env.GOOGLE_SPREADSHEET_ID,
+  };
+}
+
+function configuredHabitsEnv(env: Env): RequiredHabitsEnv | null {
+  if (
+    !env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
+    !env.GOOGLE_PRIVATE_KEY ||
+    !env.KELOSHELL_META_DB_SHEET
+  ) {
+    return null;
+  }
+  return {
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    GOOGLE_PRIVATE_KEY: env.GOOGLE_PRIVATE_KEY,
+    KELOSHELL_META_DB_SHEET: env.KELOSHELL_META_DB_SHEET,
   };
 }
 
