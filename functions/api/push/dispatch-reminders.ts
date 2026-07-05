@@ -98,7 +98,7 @@ export async function handleDispatchRemindersRequest(
   }
 
   const force = new URL(request.url).searchParams.get('force') === 'true';
-  if (!force && local.hour !== REMINDER_HOUR) {
+  if (!force && local.hour < REMINDER_HOUR) {
     return json({ date: local.date, sent: 0, reminders: [], skipped: 'outside-window' }, 200);
   }
 

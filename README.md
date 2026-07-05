@@ -62,9 +62,12 @@ Non-secret connectivity settings are versioned in `wrangler.jsonc`. Do not add `
 ## Scheduled reminders
 
 The production workflow evaluates Bodyweight Reminder and Measurement Reminder
-at 7am in `America/New_York`. It retries every 15 minutes during the possible
-UTC windows; the dispatch endpoint enforces local time and stores successful
-delivery kinds in KV so retries do not notify twice.
+no earlier than 7am in `America/New_York`. GitHub Actions schedules are
+best-effort and have been observed landing 1-3 hours late (or being coalesced
+to a single run for the day), so the dispatch endpoint fires on the first run
+at or after the local 7am hour rather than requiring an exact match — it
+stores successful delivery kinds in KV by Local Calendar Date so any later
+retries the same day do not notify twice.
 
 Configure these Cloudflare Pages secrets:
 

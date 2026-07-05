@@ -68,12 +68,12 @@ describe('POST /api/push/dispatch-reminders', () => {
     expect(response.status).toBe(401);
   });
 
-  it('skips scheduler retries outside 7am local time', async () => {
+  it('skips scheduler retries before 7am local time', async () => {
     const response = await handleDispatchRemindersRequest(
       request(),
       configuredEnv(makeMockKV()),
       {
-        now: () => new Date('2026-07-01T12:00:00Z'),
+        now: () => new Date('2026-07-01T09:00:00Z'),
         createGateway: () => makeGateway('', ['July 1st']),
         sendPush: vi.fn(),
       }
@@ -83,6 +83,38 @@ describe('POST /api/push/dispatch-reminders', () => {
     await expect(response.json()).resolves.toMatchObject({
       sent: 0,
       skipped: 'outside-window',
+    });
+  });
+
+  it('still delivers a scheduler run delayed past the 7am hour', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+    const notifications: PushNotificationPayload[] = [];
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnv(kv),
+      {
+        // GitHub Actions schedules are best-effort and can land hours late;
+        // this exercises a run that arrives at 9:59am after missing every
+        // candidate cron slot.
+        now: () => new Date('2026-07-01T13:59:00Z'),
+        createGateway: () => makeGateway('', ['July 1st']),
+        sendPush: async (_subscription, notification) => {
+          notifications.push(notification);
+          return { success: true, stale: false, status: 201 };
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      date: '2026-07-01',
+      sent: 2,
+      reminders: ['bodyweight', 'measurement'],
     });
   });
 
