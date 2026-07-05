@@ -1,19 +1,11 @@
 name: Scheduled reminders
 
+# Recurring dispatch is owned by the keloshell-reminder-cron Cloudflare
+# Worker (workers/reminder-cron), which uses a real Cron Trigger. GitHub
+# Actions' `schedule` event is best-effort with no timing SLA and was
+# observed landing 1-3 hours late here, so it is no longer the primary
+# scheduler. This workflow is kept for manual/forced verification only.
 on:
-  schedule:
-    # The dispatch endpoint evaluates each reminder kind independently against
-    # its own "no earlier than" local hour (7am for Bodyweight/Measurement,
-    # 9pm for Creatine) and dedupes delivery per Local Calendar Date in KV, so
-    # it is safe to call it on a schedule that only loosely brackets both
-    # windows: whichever kinds are due by the time a run actually executes
-    # get sent, and GitHub's scheduled runs are best-effort and have been
-    # observed landing 1-3 hours after every candidate slot below (sometimes
-    # coalesced into a single run for the whole day).
-    #   7am America/New_York -> 11:00 UTC (DST) / 12:00 UTC (standard)
-    #   9pm America/New_York -> 01:00 UTC (DST) / 02:00 UTC (standard), plus
-    #     an earlier 00:00 UTC slot as extra delay buffer before midnight
-    - cron: '0,15,30,45 0,1,2,11,12 * * *'
   workflow_dispatch:
     inputs:
       force:

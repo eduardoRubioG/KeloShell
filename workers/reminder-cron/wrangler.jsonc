@@ -1,0 +1,16 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "keloshell-reminder-cron",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-28",
+  "triggers": {
+    // Cloudflare runs a scheduled Worker at its scheduled UTC minute, unlike
+    // GitHub Actions' best-effort scheduler (which was observed landing
+    // 1-3 hours late). Two candidates per window still cover the DST /
+    // standard-time shift in America/New_York; the dispatch endpoint itself
+    // ignores whichever one lands outside its target local hour.
+    //   7am America/New_York -> 11:00 UTC (DST) / 12:00 UTC (standard)
+    //   9pm America/New_York -> 01:00 UTC (DST) / 02:00 UTC (standard)
+    "crons": ["0 11 * * *", "0 12 * * *", "0 1 * * *", "0 2 * * *"]
+  }
+}

@@ -31,22 +31,31 @@ All four routes sit behind the same Cloudflare Access / localhost-bypass auth pa
 **Service worker**
 `public/sw.js` handles `push` events (parses the JSON payload, calls `showNotification` with rich options: vibrate, badge, requireInteraction, and Open/Dismiss actions) and `notificationclick` events (focuses or opens the PWA and clears the app badge).
 
-**Scheduling — GitHub Actions dispatcher**
-Cloudflare Pages Functions have no cron support. A GitHub Actions workflow calls
-a secret-token-protected dispatch endpoint during UTC hours that bracket both
-the Bodyweight/Measurement window (7am `America/New_York`) and the Creatine
-window (9pm `America/New_York`). GitHub scheduled runs have been observed
-landing 1-3 hours after every candidate slot (sometimes coalesced into a
-single run for the whole day), so the endpoint evaluates each reminder kind
-independently against its own "no earlier than" local hour rather than
-requiring an exact hour match. Bodyweight and Measurement read the Source
+**Scheduling — dedicated Cloudflare Worker with a Cron Trigger**
+Cloudflare Pages Functions have no cron support, so a secret-token-protected
+dispatch endpoint (`POST /api/push/dispatch-reminders`) is called on a
+schedule by something else. That something was originally a GitHub Actions
+workflow (`schedule` event), but GitHub scheduled runs were observed in
+production landing 1-3 hours after every candidate cron slot — sometimes
+coalescing into a single run for the whole day — which defeats the point of a
+7am/9pm reminder, since GitHub's `schedule` trigger carries no timing SLA.
+It was replaced with `workers/reminder-cron`, a small standalone Cloudflare
+Worker that does nothing but `fetch` the dispatch endpoint on a real [Cron
+Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/),
+which Cloudflare runs at its scheduled UTC minute. The GitHub Actions workflow
+still exists for manual/forced testing via `workflow_dispatch`.
+
+The dispatch endpoint itself evaluates each reminder kind independently
+against its own "no earlier than" local hour (7am for Bodyweight/Measurement,
+9pm for Creatine) rather than requiring an exact hour match, since the
+scheduler — Cloudflare Cron Trigger or a manual GitHub Actions run — can still
+occasionally be a few minutes off. Bodyweight and Measurement read the Source
 Spreadsheet; Creatine reads the `Habits` sheet in the separate KeloShell meta
 database spreadsheet (the same one `POST /api/creatine-log` writes to) and is
 due when today has no `creatine` row. Successful deliveries are recorded in KV
-by Local Calendar Date and reminder kind, so repeated scheduler runs — for
-either window, on the same or different calls — provide retry tolerance
-without duplicate notifications, even when every run for the day is delayed
-well past its target hour.
+by Local Calendar Date and reminder kind, so repeated calls to the dispatch
+endpoint — for either window, from either scheduler — provide retry tolerance
+without duplicate notifications.
 
 ## VAPID key management
 
@@ -59,14 +68,14 @@ well past its target hour.
 
 - Push subscriptions are tied to the VAPID keypair. Rotating the keypair invalidates all existing subscriptions; Eduardo must re-enable notifications on each device.
 - Each installed PWA instance (device/browser) is its own subscription. Re-installing the PWA or clearing site data invalidates the subscription; the stale endpoint is pruned automatically on the next send attempt.
-- Scheduled delivery depends on GitHub Actions and a Cloudflare Access service token. GitHub schedules are best-effort and can run hours late or be coalesced to one firing per day, so the dispatch endpoint treats "at or after" each reminder kind's local hour (7am for Bodyweight/Measurement, 9pm for Creatine) as due rather than requiring the run to land inside a specific hour.
+- Scheduled delivery depends on the `keloshell-reminder-cron` Cloudflare Worker and a Cloudflare Access service token, both deployed independently of the main Pages app (see `workers/reminder-cron/README.md`). The dispatch endpoint still treats "at or after" each reminder kind's local hour (7am for Bodyweight/Measurement, 9pm for Creatine) as due rather than requiring the run to land inside a specific hour, as defense against any residual scheduler jitter.
 - The Creatine reminder depends on `KELOSHELL_META_DB_SHEET` being configured; if it is unset the dispatch endpoint silently skips creatine evaluation rather than failing Bodyweight/Measurement delivery.
 - iOS push requires the PWA to be installed via Safari (iOS 16.4+). Chrome on iOS uses WebKit and follows the same constraint. Not currently targeted.
 - The Web Crypto aes128gcm implementation has no external runtime dependencies and is fully unit-testable in the Workers environment.
 
 ## Troubleshooting: scheduled dispatch returns a Cloudflare Access 302
 
-If the reminder workflow (or a manual `curl`) to `/api/push/dispatch-reminders`
+If the reminder-cron Worker, the GitHub Actions workflow, or a manual `curl` to `/api/push/dispatch-reminders`
 returns an HTTP `302` redirecting to
 `https://<team>.cloudflareaccess.com/cdn-cgi/access/login/keloshell.pages.dev`,
 Cloudflare Access is rejecting the request before it reaches the function. The

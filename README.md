@@ -61,35 +61,38 @@ Non-secret connectivity settings are versioned in `wrangler.jsonc`. Do not add `
 
 ## Scheduled reminders
 
-The production workflow evaluates three reminder kinds, each due no earlier
-than its own local hour in `America/New_York`:
+The dispatch endpoint (`POST /api/push/dispatch-reminders`) evaluates three
+reminder kinds, each due no earlier than its own local hour in
+`America/New_York`:
 
 - Bodyweight Reminder and Measurement Reminder — 7am, read from the Source Spreadsheet
 - Creatine Reminder — 9pm, due when today has no `creatine` row in the Habits
   sheet of the KeloShell meta database spreadsheet
 
-GitHub Actions schedules are best-effort and have been observed landing 1-3
-hours late (or being coalesced to a single run for the day), so the dispatch
-endpoint fires each kind on the first run at or after its local hour rather
-than requiring an exact match — it stores successful delivery kinds in KV by
-Local Calendar Date so any later retries the same day do not notify twice.
+It stores successful delivery kinds in KV by Local Calendar Date, so it is
+safe to call more than once per day — later calls just no-op for kinds
+already delivered.
 
-Configure these Cloudflare Pages secrets:
+**Scheduler: `workers/reminder-cron`.** Recurring dispatch is driven by a
+small, separate Cloudflare Worker with a real [Cron
+Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/),
+not GitHub Actions. Cloudflare runs a scheduled Worker at its scheduled UTC
+minute; GitHub Actions' `schedule` event is explicitly best-effort and was
+observed here landing 1-3 hours late (sometimes coalescing to a single run
+for the whole day), which defeats the point of a 7am/9pm reminder. See
+[`workers/reminder-cron/README.md`](workers/reminder-cron/README.md) for
+deploy and secret setup.
 
-- `REMINDER_DISPATCH_TOKEN` — a long random bearer token shared only with GitHub Actions
+The `.github/workflows/reminders.yml` workflow still exists but only runs via
+manual `workflow_dispatch` (with `force` to bypass the local-time windows) —
+useful for testing the dispatch endpoint without waiting for a cron tick. It
+needs the same repository secrets as before: `REMINDER_DISPATCH_URL`,
+`REMINDER_DISPATCH_TOKEN`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`.
+
+Configure these Cloudflare Pages secrets (for the main app):
+
+- `REMINDER_DISPATCH_TOKEN` — a long random bearer token shared with the reminder-cron Worker
 - the existing Google, VAPID, `PUSH_KV`, and `KELOSHELL_META_DB_SHEET` bindings used by the app
-
-Create a Cloudflare Access service token allowed to reach the deployed Pages
-application, then configure these GitHub Actions repository secrets:
-
-- `REMINDER_DISPATCH_URL` — the production URL ending in `/api/push/dispatch-reminders`
-- `REMINDER_DISPATCH_TOKEN` — the same value configured in Cloudflare Pages
-- `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` — the Access service token
-
-Run the `Scheduled reminders` workflow manually with `force` enabled to verify
-the endpoint outside its local time windows. A forced run still evaluates
-today's spreadsheet and habit conditions and respects the per-day delivery
-record.
 
 ## Commands
 
