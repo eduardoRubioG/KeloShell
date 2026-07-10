@@ -31,6 +31,6 @@ async function dispatchReminders(env: Env): Promise<void> {
 
   if (response.status < 200 || response.status >= 300) {
     // Throwing lets Cloudflare's automatic Cron Trigger retry take over.
-    throw new Error(`Reminder dispatch failed with HTTP ${response.status}`);
+    throw new Error(`Reminder dispatch failed with HTTP ${response.status}: ${body}`);
   }
 }

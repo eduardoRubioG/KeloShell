@@ -12,5 +12,11 @@
     //   7am America/New_York -> 11:00 UTC (DST) / 12:00 UTC (standard)
     //   9pm America/New_York -> 01:00 UTC (DST) / 02:00 UTC (standard)
     "crons": ["0 11 * * *", "0 12 * * *", "0 1 * * *", "0 2 * * *"]
+  },
+  // Retain console.log output (e.g. the per-run `[reminder-cron] HTTP ...` line)
+  // so a failed dispatch is diagnosable from the Cloudflare dashboard instead
+  // of being lost after each invocation.
+  "observability": {
+    "enabled": true
   }
 }
