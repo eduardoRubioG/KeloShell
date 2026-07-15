@@ -4,10 +4,13 @@ import type {
   TrainingWeeksResponse,
 } from '../../../contracts/training';
 
-export async function fetchTrainingWeeks(): Promise<TrainingWeeksResponse> {
-  const response = await fetch('/api/training-weeks', {
-    headers: { accept: 'application/json' },
-  });
+export async function fetchTrainingWeeks(
+  today: string
+): Promise<TrainingWeeksResponse> {
+  const response = await fetch(
+    `/api/training-weeks?today=${encodeURIComponent(today)}`,
+    { headers: { accept: 'application/json' } }
+  );
   if (!response.ok) {
     const payload = (await response
       .json()

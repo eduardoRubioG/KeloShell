@@ -192,6 +192,66 @@ describe('readTrainingWeeks', () => {
     });
   });
 
+  it('defaults to the current calendar week even when earlier weeks are only partial', async () => {
+    const sheets = Array.from({ length: 4 }, () =>
+      makeSheet([
+        {
+          weeks: [
+            {
+              displayDate: '6/14',
+              rawDate: '2026-06-14',
+              weight: 100,
+              sets: [8, 8],
+            },
+            {
+              displayDate: '6/21',
+              rawDate: '2026-06-21',
+              weight: 100,
+              sets: [8, 8],
+            },
+            {
+              displayDate: '6/28',
+              rawDate: '2026-06-28',
+            },
+          ],
+        },
+      ])
+    );
+
+    const response = await readTrainingWeeks(gatewayFor(sheets), '2026-06-30');
+
+    expect(response.weeks[0].status).toBe('partial');
+    expect(response.weeks[1].status).toBe('partial');
+    expect(response.defaultWeekId).toBe('2026-06-28');
+  });
+
+  it('falls back to the first unfinished week when today is outside every available week', async () => {
+    const sheets = Array.from({ length: 4 }, () =>
+      makeSheet([
+        {
+          weeks: [
+            {
+              displayDate: '6/14',
+              rawDate: '2026-06-14',
+              weight: 100,
+              sets: [8, 8],
+            },
+            {
+              displayDate: '6/21',
+              rawDate: '2026-06-21',
+              weight: 100,
+              sets: [8, 8, 8],
+            },
+          ],
+        },
+      ])
+    );
+
+    const response = await readTrainingWeeks(gatewayFor(sheets), '2099-01-01');
+
+    expect(response.defaultWeekId).toBe('2026-06-14');
+  });
+
   it('uses the latest available week when every available week is complete', async () => {
     const sheets = Array.from({ length: 4 }, () =>
       makeSheet([
