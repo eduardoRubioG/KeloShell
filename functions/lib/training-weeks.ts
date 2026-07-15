@@ -61,8 +61,7 @@ interface ParsedSession {
 }
 
 export async function readTrainingWeeks(
-  gateway: TrainingWeeksGateway,
-  today?: string
+  gateway: TrainingWeeksGateway
 ): Promise<TrainingWeeksResponse> {
   const sessions = await readParsedSessions(gateway);
   const weeks = sessions[0].weeks.map((week, weekIndex) =>
@@ -72,23 +71,17 @@ export async function readTrainingWeeks(
   const availableWeeks = weeks.filter(
     (week) => week.availability === 'available'
   );
-  const currentByDate = today
-    ? availableWeeks.find(
-        (week) => week.startDate <= today && week.endDate >= today
-      )
-    : undefined;
-  const firstUnfinished = availableWeeks.find(
-    (week) => week.status !== 'complete'
-  );
+  const firstUnfinished = availableWeeks.find(hasUntouchedSession);
 
   return {
     defaultWeekId:
-      currentByDate?.id ??
-      firstUnfinished?.id ??
-      availableWeeks.at(-1)?.id ??
-      null,
+      firstUnfinished?.id ?? availableWeeks.at(-1)?.id ?? null,
     weeks,
   };
+}
+
+function hasUntouchedSession(week: TrainingWeekSummary): boolean {
+  return week.sessions.some((session) => session.status === 'not-started');
 }
 
 async function readParsedSessions(

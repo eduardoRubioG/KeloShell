@@ -192,41 +192,8 @@ describe('readTrainingWeeks', () => {
     });
   });
 
-  it('defaults to the current calendar week even when earlier weeks are only partial', async () => {
-    const sheets = Array.from({ length: 4 }, () =>
-      makeSheet([
-        {
-          weeks: [
-            {
-              displayDate: '6/14',
-              rawDate: '2026-06-14',
-              weight: 100,
-              sets: [8, 8],
-            },
-            {
-              displayDate: '6/21',
-              rawDate: '2026-06-21',
-              weight: 100,
-              sets: [8, 8],
-            },
-            {
-              displayDate: '6/28',
-              rawDate: '2026-06-28',
-            },
-          ],
-        },
-      ])
-    );
-
-    const response = await readTrainingWeeks(gatewayFor(sheets), '2026-06-30');
-
-    expect(response.weeks[0].status).toBe('partial');
-    expect(response.weeks[1].status).toBe('partial');
-    expect(response.defaultWeekId).toBe('2026-06-28');
-  });
-
-  it('falls back to the first unfinished week when today is outside every available week', async () => {
-    const sheets = Array.from({ length: 4 }, () =>
+  it('skips past weeks whose every session was at least touched, landing on the first untouched week', async () => {
+    const sheets = SESSION_NAMES.map(() =>
       makeSheet([
         {
           weeks: [
@@ -242,13 +209,46 @@ describe('readTrainingWeeks', () => {
               weight: 100,
               sets: [8, 8, 8],
             },
+            { displayDate: '6/28', rawDate: '2026-06-28' },
           ],
         },
       ])
     );
 
-    const response = await readTrainingWeeks(gatewayFor(sheets), '2099-01-01');
+    const response = await readTrainingWeeks(gatewayFor(sheets));
 
+    expect(response.weeks[0].status).toBe('partial');
+    expect(response.weeks[1].status).toBe('complete');
+    expect(response.weeks[2].status).toBe('not-started');
+    expect(response.defaultWeekId).toBe('2026-06-28');
+  });
+
+  it('treats a week as unfinished when even one of its sessions was never started', async () => {
+    const touchedSheet = makeSheet([
+      {
+        weeks: [
+          {
+            displayDate: '6/14',
+            rawDate: '2026-06-14',
+            weight: 100,
+            sets: [8, 8, 8],
+          },
+        ],
+      },
+    ]);
+    const untouchedSheet = makeSheet([
+      {
+        weeks: [{ displayDate: '6/14', rawDate: '2026-06-14' }],
+      },
+    ]);
+
+    const response = await readTrainingWeeks(
+      gatewayFor([touchedSheet, touchedSheet, touchedSheet, untouchedSheet])
+    );
+
+    expect(response.weeks[0].sessions.map((session) => session.status)).toEqual(
+      ['complete', 'complete', 'complete', 'not-started']
+    );
     expect(response.defaultWeekId).toBe('2026-06-14');
   });
 

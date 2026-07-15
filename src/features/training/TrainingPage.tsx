@@ -17,10 +17,9 @@ export function TrainingPage() {
     lift: requestedLiftId,
   } = useSearch({ from: '/' });
   const navigate = useNavigate({ from: '/' });
-  const today = todayLocalIsoDate();
   const trainingWeeksQuery = useQuery({
-    queryKey: ['training-weeks', today],
-    queryFn: () => fetchTrainingWeeks(today),
+    queryKey: ['training-weeks'],
+    queryFn: fetchTrainingWeeks,
   });
   const response = trainingWeeksQuery.data;
   const requestedWeek = response?.weeks.find(
@@ -216,7 +215,7 @@ export function TrainingPage() {
         nextWeekId={nextWeek?.id}
         onSelectWeek={selectWeek}
       />
-      <StreaksSection today={today} />
+      <StreaksSection today={todayLocalIsoDate()} />
       {selectedWeek.availability === 'available' ? (
         <SessionList
           sessions={selectedWeek.sessions}

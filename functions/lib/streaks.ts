@@ -145,7 +145,7 @@ export async function computeStreaks({
   const [creatineDates, bodyweightResponse, trainingResponse] = await Promise.all([
     readCreatineDates(habitsGateway),
     readBodyweight(bodyweightGateway),
-    readTrainingWeeks(trainingGateway, today),
+    readTrainingWeeks(trainingGateway),
   ]);
 
   const creatineStreak = consecutiveStreak(creatineDates, today);

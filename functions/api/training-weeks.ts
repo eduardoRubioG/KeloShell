@@ -48,15 +48,8 @@ export async function handleTrainingWeeksRequest(
     return json({ error: 'Source Spreadsheet access is not configured.' }, 500);
   }
 
-  const url = new URL(request.url);
-  const todayParam = url.searchParams.get('today');
-  const today =
-    todayParam && /^\d{4}-\d{2}-\d{2}$/.test(todayParam)
-      ? todayParam
-      : new Date().toISOString().slice(0, 10);
-
   try {
-    const response = await readTrainingWeeks(createGateway(requiredEnv), today);
+    const response = await readTrainingWeeks(createGateway(requiredEnv));
     return json(response, 200);
   } catch (error) {
     if (error instanceof SourceSpreadsheetSchemaError) {
