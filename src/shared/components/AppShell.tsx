@@ -9,7 +9,9 @@ export function AppShell() {
       const search = state.location.search as { date?: unknown; lift?: unknown };
       return (
         typeof search.lift === 'string' ||
-        (state.location.pathname === '/body' && typeof search.date === 'string')
+        ((state.location.pathname === '/body' ||
+          state.location.pathname === '/steps') &&
+          typeof search.date === 'string')
       );
     },
   });
