@@ -12,6 +12,8 @@ export const SESSION_NAMES = [
 export const HABITS_SHEET_NAME = 'Habits';
 export const CREATINE_HABIT_KEY = 'creatine';
 
+export const STEPS_SHEET_NAME = 'Steps';
+
 export const PUSH_SUBSCRIPTIONS_KEY = 'push:subscriptions';
 export const REMINDER_DELIVERY_KEY_PREFIX = 'push:reminders:';
 

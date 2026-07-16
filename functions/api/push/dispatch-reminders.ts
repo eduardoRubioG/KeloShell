@@ -12,6 +12,7 @@ import {
   type ReminderKind,
 } from '../../lib/reminders';
 import { readCreatineDates, type HabitsGateway } from '../../lib/streaks';
+import { readLoggedStepsDates } from '../../lib/steps-tracking';
 import {
   listDeliveredReminders,
   listSubscriptions,
@@ -25,8 +26,11 @@ import {
 } from '../../lib/web-push';
 
 const DEFAULT_TIME_ZONE = 'America/New_York';
-const BODY_TRACKING_REMINDER_HOUR = 7;
-const CREATINE_REMINDER_HOUR = 21;
+const BODY_TRACKING_START_MINUTES = 7 * 60; // 07:00 local
+const STEPS_MORNING_START_MINUTES = 7 * 60 + 30; // 07:30 local
+const MORNING_END_MINUTES = 12 * 60; // noon; keeps the morning steps prompt out of the evening
+const CREATINE_START_MINUTES = 21 * 60; // 21:00 local
+const STEPS_EVENING_START_MINUTES = 22 * 60; // 22:00 local
 
 interface Env {
   PUSH_KV?: KVNamespace;
@@ -103,7 +107,7 @@ export async function handleDispatchRemindersRequest(
     return json({ error: 'Scheduled reminders are not configured.' }, 503);
   }
 
-  let local: { date: string; hour: number };
+  let local: { date: string; hour: number; minute: number };
   try {
     local = localDateTime(
       dependencies.now(),
@@ -114,10 +118,11 @@ export async function handleDispatchRemindersRequest(
   }
 
   const force = new URL(request.url).searchParams.get('force') === 'true';
+  const minuteOfDay = local.hour * 60 + local.minute;
   const activeReminders: ReminderKind[] = [];
   let evaluatedAny = false;
 
-  if (force || local.hour >= BODY_TRACKING_REMINDER_HOUR) {
+  if (force || minuteOfDay >= BODY_TRACKING_START_MINUTES) {
     evaluatedAny = true;
     try {
       activeReminders.push(
@@ -135,16 +140,38 @@ export async function handleDispatchRemindersRequest(
     }
   }
 
+  const creatineDue = force || minuteOfDay >= CREATINE_START_MINUTES;
+  const stepsEveningDue = force || minuteOfDay >= STEPS_EVENING_START_MINUTES;
+  const stepsMorningDue =
+    force ||
+    (minuteOfDay >= STEPS_MORNING_START_MINUTES && minuteOfDay < MORNING_END_MINUTES);
+
   const habits = configuredHabitsEnv(env);
-  if (habits && (force || local.hour >= CREATINE_REMINDER_HOUR)) {
+  if (habits && (creatineDue || stepsEveningDue || stepsMorningDue)) {
     evaluatedAny = true;
-    try {
-      const creatineDates = await readCreatineDates(
-        dependencies.createHabitsGateway(habits)
-      );
-      if (!creatineDates.has(local.date)) activeReminders.push('creatine');
-    } catch (error) {
-      console.error('[push/dispatch-reminders] habits read failed:', error);
+    const habitsGateway = dependencies.createHabitsGateway(habits);
+
+    if (creatineDue) {
+      try {
+        const creatineDates = await readCreatineDates(habitsGateway);
+        if (!creatineDates.has(local.date)) activeReminders.push('creatine');
+      } catch (error) {
+        console.error('[push/dispatch-reminders] habits read failed:', error);
+      }
+    }
+
+    if (stepsEveningDue || stepsMorningDue) {
+      try {
+        const stepsDates = await readLoggedStepsDates(habitsGateway);
+        if (stepsEveningDue && !stepsDates.has(local.date)) {
+          activeReminders.push('steps');
+        }
+        if (stepsMorningDue && !stepsDates.has(addDays(local.date, -1))) {
+          activeReminders.push('steps-yesterday');
+        }
+      } catch (error) {
+        console.error('[push/dispatch-reminders] steps read failed:', error);
+      }
     }
   }
 
@@ -218,13 +245,17 @@ export async function handleDispatchRemindersRequest(
   return json({ date: local.date, sent, reminders: successfulKinds }, 200);
 }
 
-export function localDateTime(now: Date, timeZone: string): { date: string; hour: number } {
+export function localDateTime(
+  now: Date,
+  timeZone: string
+): { date: string; hour: number; minute: number } {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
+    minute: '2-digit',
     hourCycle: 'h23',
   }).formatToParts(now);
   const value = (type: Intl.DateTimeFormatPartTypes) =>
@@ -233,10 +264,23 @@ export function localDateTime(now: Date, timeZone: string): { date: string; hour
   const month = value('month');
   const day = value('day');
   const hour = Number(value('hour'));
-  if (!year || !month || !day || !Number.isInteger(hour)) {
+  const minute = Number(value('minute'));
+  if (
+    !year ||
+    !month ||
+    !day ||
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute)
+  ) {
     throw new Error('The Local Calendar Date could not be determined.');
   }
-  return { date: `${year}-${month}-${day}`, hour };
+  return { date: `${year}-${month}-${day}`, hour, minute };
+}
+
+function addDays(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function isAuthorized(request: Request, expectedToken: string | undefined): boolean {

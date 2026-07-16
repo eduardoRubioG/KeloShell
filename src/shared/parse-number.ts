@@ -6,6 +6,14 @@ export function parsePositiveDecimal(value: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+export function parsePositiveInteger(value: string): number | null {
+  if (!/^\d+$/.test(value.trim())) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 export function formatNumber(value: number): string {
   return Number.isInteger(value)
     ? String(value)

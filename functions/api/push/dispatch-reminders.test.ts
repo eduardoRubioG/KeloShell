@@ -46,6 +46,28 @@ function makeHabitsGateway(creatineDates: readonly string[] = []): HabitsGateway
   };
 }
 
+// The meta DB gateway serves both the Habits and Steps tabs; branch on the
+// requested range so creatine and steps reads see the tab they expect.
+function makeMetaDbGateway(
+  creatineDates: readonly string[] = [],
+  stepsDates: readonly string[] = []
+): HabitsGateway {
+  return {
+    readRanges: async (ranges: readonly string[]) => {
+      if (ranges.some((range) => range.includes('Steps'))) {
+        return [
+          [['Date', 'Steps'], ...stepsDates.map((date) => [date, 8000])],
+        ];
+      }
+      return [
+        [['Date', 'Habit'], ...creatineDates.map((date) => [date, 'creatine'])],
+      ];
+    },
+    writeRange: async () => {},
+    clearRange: async () => {},
+  };
+}
+
 const noHabitsConfigured = () => makeHabitsGateway();
 
 function configuredEnv(kv: KVNamespace) {
@@ -307,6 +329,148 @@ describe('POST /api/push/dispatch-reminders', () => {
       skipped: 'not-due',
     });
   });
+
+  it('does not evaluate steps before 10pm', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnvWithHabits(kv),
+      {
+        // 9pm EDT on July 1st: creatine is due, evening steps are not.
+        now: () => new Date('2026-07-02T01:00:00Z'),
+        createGateway: () => makeGateway(225, []),
+        createHabitsGateway: () => makeMetaDbGateway(['2026-07-01'], []),
+        sendPush: vi.fn(),
+      }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sent: 0,
+      skipped: 'not-due',
+    });
+  });
+
+  it('delivers an evening steps reminder at 10pm when today is unlogged', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+    const notifications: PushNotificationPayload[] = [];
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnvWithHabits(kv),
+      {
+        // 10pm EDT on July 1st is 02:00 UTC on July 2nd.
+        now: () => new Date('2026-07-02T02:00:00Z'),
+        createGateway: () => makeGateway(225, []),
+        createHabitsGateway: () => makeMetaDbGateway(['2026-07-01'], []),
+        sendPush: async (_subscription, notification) => {
+          notifications.push(notification);
+          return { success: true, stale: false, status: 201 };
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      date: '2026-07-01',
+      sent: 1,
+      reminders: ['steps'],
+    });
+    expect(notifications.map((item) => item.title)).toEqual(['Steps Reminder']);
+    expect(notifications[0].url).toBe('/steps?date=2026-07-01');
+  });
+
+  it('does not remind about steps already logged today at 10pm', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnvWithHabits(kv),
+      {
+        now: () => new Date('2026-07-02T02:00:00Z'),
+        createGateway: () => makeGateway(225, []),
+        createHabitsGateway: () => makeMetaDbGateway(['2026-07-01'], ['2026-07-01']),
+        sendPush: vi.fn(),
+      }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sent: 0,
+      skipped: 'not-due',
+    });
+  });
+
+  it('delivers a morning steps reminder at 7:30am when yesterday is unlogged', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+    const notifications: PushNotificationPayload[] = [];
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnvWithHabits(kv),
+      {
+        // 7:30am EDT on July 2nd is 11:30 UTC; yesterday (July 1st) has no steps.
+        now: () => new Date('2026-07-02T11:30:00Z'),
+        createGateway: () => makeGateway(225, []),
+        createHabitsGateway: () => makeMetaDbGateway([], []),
+        sendPush: async (_subscription, notification) => {
+          notifications.push(notification);
+          return { success: true, stale: false, status: 201 };
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      date: '2026-07-02',
+      sent: 1,
+      reminders: ['steps-yesterday'],
+    });
+    expect(notifications.map((item) => item.title)).toEqual(['Steps Reminder']);
+    expect(notifications[0].url).toBe('/steps?date=2026-07-01');
+  });
+
+  it('does not send the morning steps reminder when yesterday is already logged', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnvWithHabits(kv),
+      {
+        now: () => new Date('2026-07-02T11:30:00Z'),
+        createGateway: () => makeGateway(225, []),
+        createHabitsGateway: () => makeMetaDbGateway([], ['2026-07-01']),
+        sendPush: vi.fn(),
+      }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sent: 0,
+      skipped: 'not-due',
+    });
+  });
 });
 
 describe('localDateTime', () => {
@@ -314,6 +478,7 @@ describe('localDateTime', () => {
     expect(localDateTime(new Date('2026-07-01T11:00:00Z'), 'America/New_York')).toEqual({
       date: '2026-07-01',
       hour: 7,
+      minute: 0,
     });
   });
 
@@ -321,6 +486,15 @@ describe('localDateTime', () => {
     expect(localDateTime(new Date('2026-01-01T12:00:00Z'), 'America/New_York')).toEqual({
       date: '2026-01-01',
       hour: 7,
+      minute: 0,
+    });
+  });
+
+  it('reports the local minute for a half-hour scheduler slot', () => {
+    expect(localDateTime(new Date('2026-07-01T11:30:00Z'), 'America/New_York')).toEqual({
+      date: '2026-07-01',
+      hour: 7,
+      minute: 30,
     });
   });
 });

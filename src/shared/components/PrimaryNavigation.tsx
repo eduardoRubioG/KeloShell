@@ -1,6 +1,6 @@
 import {
   Barbell,
-  ClockCounterClockwise,
+  Footprints,
   GearSix,
   PersonSimple,
 } from '@phosphor-icons/react';
@@ -9,7 +9,7 @@ import { Link, useRouterState } from '@tanstack/react-router';
 
 interface NavigationItem {
   label: string;
-  to: '/' | '/body' | '/history' | '/settings';
+  to: '/' | '/body' | '/steps' | '/settings';
   icon: ReactNode;
 }
 
@@ -25,11 +25,9 @@ const navigationItems: readonly NavigationItem[] = [
     icon: <PersonSimple aria-hidden="true" size={20} weight="bold" />,
   },
   {
-    label: 'History',
-    to: '/history',
-    icon: (
-      <ClockCounterClockwise aria-hidden="true" size={20} weight="bold" />
-    ),
+    label: 'Steps',
+    to: '/steps',
+    icon: <Footprints aria-hidden="true" size={20} weight="bold" />,
   },
   {
     label: 'Settings',

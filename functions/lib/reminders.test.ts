@@ -91,4 +91,20 @@ describe('reminderNotification', () => {
       tag: 'measurement-reminder-2026-07-01',
     });
   });
+
+  it('deep-links the evening Steps Reminder to today’s editor', () => {
+    expect(reminderNotification('steps', '2026-07-01')).toMatchObject({
+      title: 'Steps Reminder',
+      url: '/steps?date=2026-07-01',
+      tag: 'steps-reminder-2026-07-01',
+    });
+  });
+
+  it('deep-links the morning Steps Reminder to yesterday’s editor', () => {
+    expect(reminderNotification('steps-yesterday', '2026-07-01')).toMatchObject({
+      title: 'Steps Reminder',
+      url: '/steps?date=2026-06-30',
+      tag: 'steps-yesterday-reminder-2026-07-01',
+    });
+  });
 });

@@ -62,6 +62,7 @@ REMINDER_DISPATCH_TOKEN=<same-random-token-as-the-GitHub-Actions-secret>
 Before setting `KELOSHELL_META_DB_SHEET` in production:
 
 - Create a `Habits` tab in that spreadsheet with header `Date | Habit` in `A1:B1`.
+- Create a `Steps` tab in that spreadsheet with header `Date | Steps` in `A1:B1`.
 - Share the spreadsheet with the service account email as an Editor.
 
 Keep the private key exactly as exported from Google. If it contains escaped newlines (`\n`), preserve them.

@@ -19,7 +19,12 @@ const MONTHS = new Map(
   ].map((month, index) => [month, index + 1])
 );
 
-export type ReminderKind = 'bodyweight' | 'measurement' | 'creatine';
+export type ReminderKind =
+  | 'bodyweight'
+  | 'measurement'
+  | 'creatine'
+  | 'steps'
+  | 'steps-yesterday';
 
 export interface ReminderGateway {
   readRanges(
@@ -111,6 +116,37 @@ export function reminderNotification(
     };
   }
 
+  if (kind === 'steps') {
+    return {
+      title: 'Steps Reminder',
+      body: "Today's step count is ready to log.",
+      url: `/steps?date=${localDate}`,
+      tag: `steps-reminder-${localDate}`,
+      vibrate: [100, 50, 100],
+      requireInteraction: true,
+      actions: [
+        { action: 'open', title: 'Log steps' },
+        { action: 'dismiss', title: 'Dismiss' },
+      ],
+    };
+  }
+
+  if (kind === 'steps-yesterday') {
+    const yesterday = addDays(localDate, -1);
+    return {
+      title: 'Steps Reminder',
+      body: "You haven't logged yesterday's steps yet.",
+      url: `/steps?date=${yesterday}`,
+      tag: `steps-yesterday-reminder-${localDate}`,
+      vibrate: [100, 50, 100],
+      requireInteraction: true,
+      actions: [
+        { action: 'open', title: 'Log steps' },
+        { action: 'dismiss', title: 'Dismiss' },
+      ],
+    };
+  }
+
   return {
     title: 'Measurement Reminder',
     body: "Today's Measurement Check-In is ready.",
@@ -144,6 +180,12 @@ function measurementMonthDay(value: unknown): string | null {
   const date = new Date(Date.UTC(2000, month - 1, day));
   if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
   return `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function addDays(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function isPositiveDecimal(value: unknown): boolean {

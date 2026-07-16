@@ -61,12 +61,16 @@ Non-secret connectivity settings are versioned in `wrangler.jsonc`. Do not add `
 
 ## Scheduled reminders
 
-The dispatch endpoint (`POST /api/push/dispatch-reminders`) evaluates three
-reminder kinds, each due no earlier than its own local hour in
+The dispatch endpoint (`POST /api/push/dispatch-reminders`) evaluates several
+reminder kinds, each due no earlier than its own local time in
 `America/New_York`:
 
 - Bodyweight Reminder and Measurement Reminder — 7am, read from the Source Spreadsheet
+- Steps Reminder (morning) — 7:30am, due when yesterday has no value in the
+  `Steps` sheet of the KeloShell meta database spreadsheet
 - Creatine Reminder — 9pm, due when today has no `creatine` row in the Habits
+  sheet of the KeloShell meta database spreadsheet
+- Steps Reminder (evening) — 10pm, due when today has no value in the `Steps`
   sheet of the KeloShell meta database spreadsheet
 
 It stores successful delivery kinds in KV by Local Calendar Date, so it is
