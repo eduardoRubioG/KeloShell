@@ -8,6 +8,7 @@ import {
   SourceSpreadsheetSchemaError,
   type TrainingWeeksGateway,
 } from '../lib/training-weeks';
+import { SESSION_NAMES_BY_USER } from '../lib/config';
 import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
 
 type Env = UserResolutionEnv;
@@ -40,7 +41,10 @@ export async function handleTrainingWeeksRequest(
   }
 
   try {
-    const response = await readTrainingWeeks(createGateway(credentials));
+    const response = await readTrainingWeeks(
+      createGateway(credentials),
+      SESSION_NAMES_BY_USER[userId]
+    );
     return json(response, 200);
   } catch (error) {
     if (error instanceof SourceSpreadsheetSchemaError) {

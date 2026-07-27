@@ -23,6 +23,8 @@ interface BlockFixture {
   liftName?: string;
   progression?: string;
   setCount?: number;
+  /** Raw value for the Sets cell; overrides setCount (e.g. a "2-3" range). */
+  setsCell?: unknown;
   repTarget?: unknown;
   formattedRepTarget?: string;
   weeks: WeekFixture[];
@@ -116,6 +118,53 @@ describe('readTrainingWeeks', () => {
         },
       ],
     });
+  });
+
+  it('renders a Sets range with optional trailing sets and completes on the lower bound', async () => {
+    const sheets = Array.from({ length: 4 }, () =>
+      makeSheet([
+        {
+          setsCell: '2-3',
+          weeks: [
+            {
+              displayDate: '6/28',
+              rawDate: '2026-06-28',
+              weight: 100,
+              sets: [8, 8],
+            },
+          ],
+        },
+      ])
+    );
+    const response = await readTrainingWeeks(gatewayFor(sheets));
+
+    expect(response.weeks[0].sessions[0]).toMatchObject({
+      status: 'complete',
+      lifts: [
+        {
+          minSetCount: 2,
+          setCount: 3,
+          status: 'complete',
+          setResults: ['8', '8', null],
+        },
+      ],
+    });
+  });
+
+  it('rejects a Sets range outside the supported 1-4 bound', async () => {
+    const sheets = Array.from({ length: 4 }, () =>
+      makeSheet([
+        {
+          setsCell: '3-5',
+          weeks: [
+            { displayDate: '6/28', rawDate: '2026-06-28', weight: '', sets: [] },
+          ],
+        },
+      ])
+    );
+    const response = await readTrainingWeeks(gatewayFor(sheets));
+
+    expect(response.weeks[0].availability).toBe('unavailable');
   });
 
   it('treats malformed existing values as partial rather than complete', async () => {
@@ -551,6 +600,34 @@ describe('writeLiftLog', () => {
     expect(cleared.weeks[0].sessions[0].lifts[0].status).toBe('not-started');
   });
 
+  it('completes a Sets-range lift when only the required sets are logged', async () => {
+    const sheets = Array.from({ length: 4 }, () =>
+      makeSheet([
+        {
+          setsCell: '2-3',
+          weeks: [{ displayDate: '6/28', rawDate: '2026-06-28' }],
+        },
+      ])
+    );
+    const gateway = gatewayFor(sheets);
+    const initial = await readTrainingWeeks(gateway);
+    const lift = initial.weeks[0].sessions[0].lifts[0];
+
+    const saved = await writeLiftLog(gateway, {
+      operation: 'save',
+      weekId: '2026-06-28',
+      session: 'Upper A',
+      liftId: lift.id,
+      revision: lift.revision,
+      weight: 100,
+      setResults: [8, 8],
+    });
+    expect(saved.weeks[0].sessions[0].lifts[0]).toMatchObject({
+      status: 'complete',
+      setResults: ['8', '8', null],
+    });
+  });
+
   it('rejects a stale Lift Log revision', async () => {
     const sheets = Array.from({ length: 4 }, () =>
       makeSheet([
@@ -605,7 +682,7 @@ function makeSheet(blocks: BlockFixture[]): {
     const start = grid.length;
     grid.push(['Lift', block.liftName ?? 'Test Lift']);
     grid.push(['Progression', block.progression ?? 'Dynamic DP']);
-    grid.push(['Sets', block.setCount ?? 3]);
+    grid.push(['Sets', block.setsCell ?? block.setCount ?? 3]);
     grid.push(['Reps', block.repTarget ?? '6-8']);
     grid.push(['Cue', 'Controlled reps']);
     grid.push(['Week', 'Weight', 1, 2, 3, 4]);

@@ -1,4 +1,7 @@
-export type SessionName = 'Upper A' | 'Lower A' | 'Upper B' | 'Lower B';
+// Session tab names are coach-defined and vary per user (e.g. an upper/lower
+// split vs a full-body split), so this is an open string rather than a fixed
+// union. Values are validated at runtime against the user's configured tabs.
+export type SessionName = string;
 
 export type SessionStatus = 'complete' | 'partial' | 'not-started';
 
@@ -27,6 +30,9 @@ export interface LiftDetail {
   name: string;
   status: SessionStatus;
   progression: string;
+  /** Required (lower-bound) sets; equals setCount when Sets is a single number. */
+  minSetCount: number;
+  /** Rendered (upper-bound) sets. Sets beyond minSetCount are optional. */
   setCount: number;
   repTarget: string;
   proximityToFailure: string;

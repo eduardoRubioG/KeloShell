@@ -158,7 +158,10 @@ function LiftRow({
           {lift.name}
         </span>
         <span className="mt-1 block truncate font-mono text-[0.625rem] font-medium text-text-muted">
-          {lift.setCount} × {lift.repTarget}
+          {lift.minSetCount === lift.setCount
+            ? lift.setCount
+            : `${lift.minSetCount}-${lift.setCount}`}{' '}
+          × {lift.repTarget}
           {lift.progression ? ` · ${lift.progression}` : ''}
         </span>
       </span>

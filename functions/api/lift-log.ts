@@ -11,6 +11,7 @@ import {
   writeLiftLog,
   type TrainingWeeksGateway,
 } from '../lib/training-weeks';
+import { SESSION_NAMES_BY_USER } from '../lib/config';
 import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
 
 type Env = UserResolutionEnv;
@@ -41,7 +42,7 @@ export async function handleLiftLogRequest(
   }
 
   const payload = await request.json().catch(() => null);
-  const liftLogRequest = parseLiftLogRequest(payload);
+  const liftLogRequest = parseLiftLogRequest(payload, SESSION_NAMES_BY_USER[userId]);
   if (!liftLogRequest) {
     return json({ error: 'A valid complete Lift Log is required.' }, 400);
   }
@@ -49,7 +50,8 @@ export async function handleLiftLogRequest(
   try {
     const response = await writeLiftLog(
       createGateway(credentials),
-      liftLogRequest
+      liftLogRequest,
+      SESSION_NAMES_BY_USER[userId]
     );
     return json(response, 200);
   } catch (error) {
@@ -69,7 +71,10 @@ export async function handleLiftLogRequest(
   }
 }
 
-function parseLiftLogRequest(value: unknown): LiftLogRequest | null {
+function parseLiftLogRequest(
+  value: unknown,
+  sessionNames: readonly string[]
+): LiftLogRequest | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
@@ -78,7 +83,7 @@ function parseLiftLogRequest(value: unknown): LiftLogRequest | null {
     (body.operation !== 'save' && body.operation !== 'clear') ||
     typeof body.weekId !== 'string' ||
     !/^\d{4}-\d{2}-\d{2}$/.test(body.weekId) ||
-    !isSessionName(body.session) ||
+    !isSessionName(body.session, sessionNames) ||
     typeof body.liftId !== 'string' ||
     body.liftId.length === 0 ||
     typeof body.revision !== 'string' ||
@@ -116,13 +121,11 @@ function parseLiftLogRequest(value: unknown): LiftLogRequest | null {
   };
 }
 
-function isSessionName(value: unknown): value is SessionName {
-  return (
-    value === 'Upper A' ||
-    value === 'Lower A' ||
-    value === 'Upper B' ||
-    value === 'Lower B'
-  );
+function isSessionName(
+  value: unknown,
+  sessionNames: readonly string[]
+): value is SessionName {
+  return typeof value === 'string' && sessionNames.includes(value);
 }
 
 function defaultGatewayFactory(credentials: GoogleSheetsCredentials): TrainingWeeksGateway {

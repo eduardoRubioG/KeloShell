@@ -41,6 +41,9 @@ interface ProgrammedLift {
   groupStart: number;
   name: string;
   progression: string;
+  /** Required (lower-bound) set count; equals setCount for a single number. */
+  minSetCount: number;
+  /** Rendered (upper-bound) set count. */
   setCount: number;
   repTarget: string;
   proximityToFailure: string;
@@ -61,9 +64,10 @@ interface ParsedSession {
 }
 
 export async function readTrainingWeeks(
-  gateway: TrainingWeeksGateway
+  gateway: TrainingWeeksGateway,
+  sessionNames: readonly string[] = SESSION_NAMES
 ): Promise<TrainingWeeksResponse> {
-  const sessions = await readParsedSessions(gateway);
+  const sessions = await readParsedSessions(gateway, sessionNames);
   const weeks = sessions[0].weeks.map((week, weekIndex) =>
     summarizeWeek(week.id, weekIndex + 1, sessions, weekIndex)
   );
@@ -85,10 +89,11 @@ function hasUntouchedSession(week: TrainingWeekSummary): boolean {
 }
 
 async function readParsedSessions(
-  gateway: TrainingWeeksGateway
+  gateway: TrainingWeeksGateway,
+  sessionNames: readonly string[]
 ): Promise<ParsedSession[]> {
-  const gridRanges = SESSION_NAMES.map((name) => `'${name}'!A:AP`);
-  const formattedGridRanges = SESSION_NAMES.map((name) => `'${name}'!A:AP`);
+  const gridRanges = sessionNames.map((name) => `'${name}'!A:AP`);
+  const formattedGridRanges = sessionNames.map((name) => `'${name}'!A:AP`);
   const unformattedGrids = await gateway.readRanges(
     gridRanges,
     'UNFORMATTED_VALUE'
@@ -99,15 +104,15 @@ async function readParsedSessions(
   );
 
   if (
-    unformattedGrids.length !== SESSION_NAMES.length ||
-    formattedGrids.length !== SESSION_NAMES.length
+    unformattedGrids.length !== sessionNames.length ||
+    formattedGrids.length !== sessionNames.length
   ) {
     throw new SourceSpreadsheetSchemaError(
       'The required Workout Session tabs could not be read.'
     );
   }
 
-  const sessions = SESSION_NAMES.map((name, index) =>
+  const sessions = sessionNames.map((name, index) =>
     parseSession(name, unformattedGrids[index], formattedGrids[index])
   );
   validateMatchingWeekSequences(sessions);
@@ -241,9 +246,9 @@ function parseProgramDefinition(
       }
     }
 
-    const setCount = parseWholeNumber(fields.get('Sets'));
+    const setSpec = parseSetSpec(fields.get('Sets'));
     const repTarget = cellText(fields.get('Reps'));
-    if (setCount === null || setCount < 1 || setCount > 4 || !repTarget) {
+    if (setSpec === null || !repTarget) {
       invalid = true;
       continue;
     }
@@ -255,7 +260,8 @@ function parseProgramDefinition(
       groupStart,
       name,
       progression: cellText(fields.get('Progression')),
-      setCount,
+      minSetCount: setSpec.minSetCount,
+      setCount: setSpec.setCount,
       repTarget,
       proximityToFailure: cellText(fields.get('Prox. to Failure')),
       cue: cellText(fields.get('Cue')),
@@ -380,10 +386,10 @@ function detailLift(
     lift.groupStart + 2,
     lift.groupStart + LIFT_GROUP_WIDTH
   );
-  const requiredSetCells = allSetCells.slice(0, lift.setCount);
+  const requiredSetCells = allSetCells.slice(0, lift.minSetCount);
   const complete =
     isPositiveDecimal(weight) &&
-    requiredSetCells.length === lift.setCount &&
+    requiredSetCells.length === lift.minSetCount &&
     requiredSetCells.every(isNonNegativeWholeNumber);
   const hasLoggedData =
     !isBlank(weight) || allSetCells.some((value) => !isBlank(value));
@@ -397,6 +403,7 @@ function detailLift(
     name: lift.name,
     status: complete ? 'complete' : hasLoggedData ? 'partial' : 'not-started',
     progression: lift.progression,
+    minSetCount: lift.minSetCount,
     setCount: lift.setCount,
     repTarget: lift.repTarget,
     proximityToFailure: lift.proximityToFailure,
@@ -415,9 +422,10 @@ function detailLift(
 
 export async function writeLiftLog(
   gateway: TrainingWeeksGateway,
-  request: LiftLogRequest
+  request: LiftLogRequest,
+  sessionNames: readonly string[] = SESSION_NAMES
 ): Promise<TrainingWeeksResponse> {
-  const sessions = await readParsedSessions(gateway);
+  const sessions = await readParsedSessions(gateway, sessionNames);
   const session = sessions.find((candidate) => candidate.name === request.session);
   const week = session?.weeks.find((candidate) => candidate.id === request.weekId);
   const lift = week?.lifts?.find((candidate) => candidate.id === request.liftId);
@@ -445,7 +453,8 @@ export async function writeLiftLog(
   } else {
     if (
       !isPositiveDecimal(request.weight) ||
-      request.setResults.length !== lift.setCount ||
+      request.setResults.length < lift.minSetCount ||
+      request.setResults.length > lift.setCount ||
       !request.setResults.every(isNonNegativeWholeNumber)
     ) {
       throw new TypeError('A complete valid Lift Log is required.');
@@ -457,7 +466,7 @@ export async function writeLiftLog(
     ]);
   }
 
-  const response = await readTrainingWeeks(gateway);
+  const response = await readTrainingWeeks(gateway, sessionNames);
   const updatedLift = response.weeks
     .find((candidate) => candidate.id === request.weekId)
     ?.sessions.find((candidate) => candidate.name === request.session)
@@ -468,9 +477,12 @@ export async function writeLiftLog(
       ? updatedLift?.status === 'not-started'
       : updatedLift?.status === 'complete' &&
         Number(updatedLift.weight) === request.weight &&
-        updatedLift.setResults.every(
-          (result, index) => Number(result) === request.setResults[index]
-        );
+        request.setResults.every(
+          (result, index) => Number(updatedLift.setResults[index]) === result
+        ) &&
+        updatedLift.setResults
+          .slice(request.setResults.length)
+          .every(isBlank);
   if (!confirmed) {
     throw new Error('The Source Spreadsheet did not confirm the Lift Log write.');
   }
@@ -642,6 +654,7 @@ function liftRevision(
       lift.id,
       lift.name,
       lift.progression,
+      lift.minSetCount,
       lift.setCount,
       lift.repTarget,
       lift.proximityToFailure,
@@ -804,6 +817,31 @@ function isBlank(value: unknown): boolean {
 function parseWholeNumber(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(cellText(value));
   return Number.isInteger(parsed) ? parsed : null;
+}
+
+/**
+ * Parses a Sets specification: either a single whole number ("3") or a range
+ * ("2-3", lower-upper). Returns the required (lower) and rendered (upper) set
+ * counts, or null if malformed or outside the supported 1-4 range. Sets above
+ * the lower bound are logged as optional.
+ */
+function parseSetSpec(
+  value: unknown
+): { minSetCount: number; setCount: number } | null {
+  const match = cellText(value).match(/^(\d+)\s*[-–]\s*(\d+)$/);
+  if (match) {
+    const min = Number(match[1]);
+    const max = Number(match[2]);
+    if (min < 1 || max > 4 || min > max) {
+      return null;
+    }
+    return { minSetCount: min, setCount: max };
+  }
+  const single = parseWholeNumber(value);
+  if (single === null || single < 1 || single > 4) {
+    return null;
+  }
+  return { minSetCount: single, setCount: single };
 }
 
 function isPositiveDecimal(value: unknown): boolean {

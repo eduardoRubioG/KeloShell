@@ -62,8 +62,18 @@ export function LiftLogging({
     lift.weight !== null || lift.setResults.some((result) => result !== null);
   const parsedWeight = parsePositiveDecimal(weight);
   const parsedSets = setResults.map(parseNonNegativeWholeNumber);
+  // Sets beyond minSetCount are optional: they may be left blank, but only as a
+  // contiguous trailing run (no filling set 3 while set 2 is empty).
+  const firstBlank = parsedSets.findIndex((result) => result === null);
+  const effectiveSetCount = firstBlank === -1 ? parsedSets.length : firstBlank;
+  const hasGap =
+    firstBlank !== -1 &&
+    parsedSets.slice(firstBlank).some((result) => result !== null);
+  const effectiveSets = parsedSets.slice(0, effectiveSetCount) as number[];
   const isValid =
-    parsedWeight !== null && parsedSets.every((result) => result !== null);
+    parsedWeight !== null &&
+    !hasGap &&
+    effectiveSetCount >= lift.minSetCount;
 
   useEffect(() => {
     const warnOnUnload = (event: BeforeUnloadEvent) => {
@@ -91,11 +101,14 @@ export function LiftLogging({
     if (parsedWeight === null) {
       return 'Enter a positive working weight.';
     }
-    const missingSet = parsedSets.findIndex((result) => result === null);
-    return missingSet >= 0
-      ? `Enter a whole-number result for set ${missingSet + 1}.`
-      : null;
-  }, [isDirty, parsedSets, parsedWeight]);
+    if (hasGap) {
+      return 'Fill your sets in order, without gaps.';
+    }
+    if (effectiveSetCount < lift.minSetCount) {
+      return `Enter a whole-number result for set ${effectiveSetCount + 1}.`;
+    }
+    return null;
+  }, [isDirty, parsedWeight, hasGap, effectiveSetCount, lift.minSetCount]);
 
   const handleBack = () => {
     if (isDirty && !window.confirm('Discard the changes to this Lift Log?')) {
@@ -123,7 +136,7 @@ export function LiftLogging({
       liftId: lift.id,
       revision: lift.revision,
       weight: parsedWeight,
-      setResults: parsedSets as number[],
+      setResults: effectiveSets,
     });
   };
 
@@ -252,7 +265,14 @@ export function LiftLogging({
           ) : null}
         </div>
         <div className="mt-2.5 grid grid-cols-3 gap-2">
-          <ContextValue value={String(lift.setCount)} label="Sets" />
+          <ContextValue
+            value={
+              lift.minSetCount === lift.setCount
+                ? String(lift.setCount)
+                : `${lift.minSetCount}-${lift.setCount}`
+            }
+            label="Sets"
+          />
           <ContextValue value={lift.repTarget} label="Reps" />
           <ContextValue value={lift.proximityToFailure || '—'} label="RIR" />
         </div>
@@ -352,16 +372,22 @@ export function LiftLogging({
             gridTemplateColumns: `repeat(${lift.setCount}, minmax(0, 1fr))`,
           }}
         >
-          {setResults.map((result, index) => (
+          {setResults.map((result, index) => {
+            const isOptional = index >= lift.minSetCount;
+            return (
             <label
               key={index}
               className={`rounded-card border-[1.5px] bg-surface-raised px-2 py-2.5 text-center focus-within:border-action ${
                 parsedSets[index] !== null
                   ? 'border-complete/50'
-                  : 'border-border-subtle'
+                  : isOptional
+                    ? 'border-dashed border-border-subtle'
+                    : 'border-border-subtle'
               }`}
             >
-              <span className="sr-only">Set {index + 1} result</span>
+              <span className="sr-only">
+                Set {index + 1}{isOptional ? ' (optional)' : ''} result
+              </span>
               <input
                 className="w-full bg-transparent text-center font-mono text-xl font-bold text-text-primary outline-none placeholder:text-text-faint"
                 inputMode="numeric"
@@ -379,9 +405,13 @@ export function LiftLogging({
               />
               <span className="mt-1 block font-mono text-[0.5625rem] font-semibold uppercase text-text-muted">
                 Set {index + 1}
+                {isOptional ? (
+                  <span className="text-text-faint"> · opt</span>
+                ) : null}
               </span>
             </label>
-          ))}
+            );
+          })}
         </div>
       </fieldset>
 

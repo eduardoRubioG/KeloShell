@@ -10,10 +10,7 @@ export const Route = createFileRoute('/')({
         ? search.week
         : undefined,
     session:
-      search.session === 'Upper A' ||
-      search.session === 'Lower A' ||
-      search.session === 'Upper B' ||
-      search.session === 'Lower B'
+      typeof search.session === 'string' && search.session.length > 0
         ? search.session
         : undefined,
     lift:

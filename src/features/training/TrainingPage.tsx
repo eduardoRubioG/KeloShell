@@ -126,7 +126,7 @@ export function TrainingPage() {
       <TrainingPageMessage
         eyebrow="Program Definition"
         title="No available weeks"
-        detail="Training Week rows exist, but none currently have complete Program Definitions for all four sessions."
+        detail="Training Week rows exist, but none currently have complete Program Definitions for every session."
       />
     );
   }
