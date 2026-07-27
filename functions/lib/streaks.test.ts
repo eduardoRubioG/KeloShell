@@ -59,7 +59,8 @@ class MockHabitsGateway implements HabitsGateway {
 
 function makeWeek(
   id: string,
-  completedSessions: number
+  completedSessions: number,
+  totalSessions = 4
 ): TrainingWeeksResponse['weeks'][number] {
   const endDate = new Date(`${id}T00:00:00Z`);
   endDate.setUTCDate(endDate.getUTCDate() + 6);
@@ -69,9 +70,14 @@ function makeWeek(
     startDate: id,
     endDate: endDate.toISOString().slice(0, 10),
     availability: 'available',
-    status: completedSessions === 4 ? 'complete' : completedSessions > 0 ? 'partial' : 'not-started',
+    status:
+      completedSessions === totalSessions
+        ? 'complete'
+        : completedSessions > 0
+          ? 'partial'
+          : 'not-started',
     completedSessions,
-    sessions: [],
+    sessions: Array.from({ length: totalSessions }, () => ({}) as never),
   };
 }
 
@@ -133,6 +139,18 @@ describe('consecutiveStreak', () => {
 });
 
 describe('computeWorkoutStreakFromWeeks', () => {
+  it('counts a completed three-session training week', () => {
+    const response: TrainingWeeksResponse = {
+      defaultWeekId: '2026-06-29',
+      weeks: [makeWeek('2026-06-29', 3, 3)],
+    };
+
+    expect(computeWorkoutStreakFromWeeks(response, '2026-07-01')).toEqual({
+      count: 1,
+      todayComplete: true,
+    });
+  });
+
   it('counts consecutive complete weeks ending at the current week', () => {
     const response: TrainingWeeksResponse = {
       defaultWeekId: '2026-06-29',

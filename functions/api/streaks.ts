@@ -1,7 +1,7 @@
 import type { ApiErrorResponse } from '../../src/contracts/training';
 import type { StreaksResponse } from '../../src/contracts/streaks';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
-import { SourceSpreadsheetSchemaError } from '../lib/config';
+import { SESSION_NAMES_BY_USER, SourceSpreadsheetSchemaError } from '../lib/config';
 import {
   computeStreaks,
   type HabitsGateway,
@@ -63,6 +63,7 @@ export async function handleStreaksRequest(
       habitsGateway,
       bodyweightGateway: mainGateway,
       trainingGateway: mainGateway,
+      sessionNames: SESSION_NAMES_BY_USER[userId],
       today,
     });
     return json(response, 200);

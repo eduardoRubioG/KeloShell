@@ -1,7 +1,7 @@
 import type { ApiErrorResponse } from '../../src/contracts/training';
 import type { StreaksResponse, CreatineLogRequest } from '../../src/contracts/streaks';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
-import { SourceSpreadsheetSchemaError } from '../lib/config';
+import { SESSION_NAMES_BY_USER, SourceSpreadsheetSchemaError } from '../lib/config';
 import {
   computeStreaks,
   logCreatine,
@@ -64,6 +64,7 @@ export async function handleCreatineLogRequest(
       habitsGateway,
       bodyweightGateway: mainGateway,
       trainingGateway: mainGateway,
+      sessionNames: SESSION_NAMES_BY_USER[userId],
       today: creatineRequest.date,
     });
     return json(response, 200);

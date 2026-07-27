@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { HabitsGateway } from '../lib/streaks';
 import type { BodyTrackingGateway } from '../lib/body-tracking';
 import type { TrainingWeeksGateway } from '../lib/training-weeks';
-import { SESSION_NAMES } from '../lib/training-weeks';
+import { SESSION_NAMES, SESSION_NAMES_BY_USER } from '../lib/config';
 import { handleStreaksRequest } from './streaks';
 import { handleCreatineLogRequest } from './creatine-log';
 
@@ -12,6 +12,15 @@ const configuredEnv = {
   GOOGLE_PRIVATE_KEY: 'private-key',
   GOOGLE_SPREADSHEET_ID: 'sheet-id',
   KELOSHELL_META_DB_SHEET: 'meta-sheet-id',
+  LOCAL_AUTH_BYPASS: 'true',
+};
+
+const emilyConfiguredEnv = {
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: 'test@example.com',
+  GOOGLE_PRIVATE_KEY: 'private-key',
+  EMILY_GOOGLE_SPREADSHEET_ID: 'emily-sheet-id',
+  EMILY_META_DB_SHEET: 'emily-meta-sheet-id',
+  EMILY_EMAIL: 'emily@example.com',
   LOCAL_AUTH_BYPASS: 'true',
 };
 
@@ -46,7 +55,8 @@ type CombinedGateway = BodyTrackingGateway & TrainingWeeksGateway;
 class ValidMainGateway implements CombinedGateway {
   constructor(
     private readonly weekIsoDate: string = '2026-06-29',
-    private readonly completedSessions: number = 4
+    private readonly completedSessions: number = 4,
+    private readonly sessionNames: readonly string[] = SESSION_NAMES
   ) {}
 
   async readRanges(
@@ -69,13 +79,13 @@ class ValidMainGateway implements CombinedGateway {
       ];
       return [option === 'UNFORMATTED_VALUE' ? raw : fmt];
     }
-    // Training reads: returns 4 identical session grids
+    // Training reads: returns one identical session grid per configured tab.
     if (option === 'UNFORMATTED_VALUE') {
-      return SESSION_NAMES.map(() =>
+      return this.sessionNames.map(() =>
         makeMinimalSessionGrid(this.weekIsoDate, this.completedSessions)
       );
     }
-    return SESSION_NAMES.map(() =>
+    return this.sessionNames.map(() =>
       makeMinimalSessionDates(this.weekIsoDate)
     );
   }
@@ -120,6 +130,17 @@ class MockHabitsGateway implements HabitsGateway {
 }
 
 describe('GET /api/streaks', () => {
+  it('uses Emily’s Full A/B/C tabs', async () => {
+    const response = await handleStreaksRequest(
+      new Request('http://localhost/api/streaks?as=emily&today=2026-07-01'),
+      emilyConfiguredEnv,
+      () => new ValidMainGateway('2026-06-29', 3, SESSION_NAMES_BY_USER.emily),
+      () => new MockHabitsGateway()
+    );
+
+    expect(response.status).toBe(200);
+  });
+
   it('requires Private Tool Access away from localhost', async () => {
     const response = await handleStreaksRequest(
       new Request('https://example.com/api/streaks'),
