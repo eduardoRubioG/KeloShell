@@ -2,27 +2,17 @@ import type {
   ApiErrorResponse,
   TrainingWeeksResponse,
 } from '../../src/contracts/training';
-import { GoogleSheetsClient } from '../lib/google-sheets';
+import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
 import {
   readTrainingWeeks,
   SourceSpreadsheetSchemaError,
   type TrainingWeeksGateway,
 } from '../lib/training-weeks';
+import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
 
-interface Env {
-  GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
-  GOOGLE_PRIVATE_KEY?: string;
-  GOOGLE_SPREADSHEET_ID?: string;
-  LOCAL_AUTH_BYPASS?: string;
-}
+type Env = UserResolutionEnv;
 
-type GatewayFactory = (env: RequiredGoogleEnv) => TrainingWeeksGateway;
-
-interface RequiredGoogleEnv {
-  GOOGLE_SERVICE_ACCOUNT_EMAIL: string;
-  GOOGLE_PRIVATE_KEY: string;
-  GOOGLE_SPREADSHEET_ID: string;
-}
+type GatewayFactory = (credentials: GoogleSheetsCredentials) => TrainingWeeksGateway;
 
 export const onRequest: PagesFunction<Env> = async (context) =>
   handleTrainingWeeksRequest(context.request, context.env);
@@ -36,20 +26,21 @@ export async function handleTrainingWeeksRequest(
     return json({ error: 'Method not allowed.' }, 405, { Allow: 'GET' });
   }
 
-  if (!isAuthorized(request, env)) {
+  const userId = resolveUserId(request, env);
+  if (!userId) {
     return json(
       { error: 'Private Tool Access is required. Reload and sign in.' },
       401
     );
   }
 
-  const requiredEnv = configuredGoogleEnv(env);
-  if (!requiredEnv) {
+  const credentials = getSourceCredentials(userId, env);
+  if (!credentials) {
     return json({ error: 'Source Spreadsheet access is not configured.' }, 500);
   }
 
   try {
-    const response = await readTrainingWeeks(createGateway(requiredEnv));
+    const response = await readTrainingWeeks(createGateway(credentials));
     return json(response, 200);
   } catch (error) {
     if (error instanceof SourceSpreadsheetSchemaError) {
@@ -62,36 +53,8 @@ export async function handleTrainingWeeksRequest(
   }
 }
 
-function defaultGatewayFactory(env: RequiredGoogleEnv): TrainingWeeksGateway {
-  return new GoogleSheetsClient({
-    clientEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    privateKey: env.GOOGLE_PRIVATE_KEY,
-    spreadsheetId: env.GOOGLE_SPREADSHEET_ID,
-  });
-}
-
-function configuredGoogleEnv(env: Env): RequiredGoogleEnv | null {
-  if (
-    !env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
-    !env.GOOGLE_PRIVATE_KEY ||
-    !env.GOOGLE_SPREADSHEET_ID
-  ) {
-    return null;
-  }
-  return {
-    GOOGLE_SERVICE_ACCOUNT_EMAIL: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    GOOGLE_PRIVATE_KEY: env.GOOGLE_PRIVATE_KEY,
-    GOOGLE_SPREADSHEET_ID: env.GOOGLE_SPREADSHEET_ID,
-  };
-}
-
-function isAuthorized(request: Request, env: Env): boolean {
-  const hostname = new URL(request.url).hostname;
-  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-  return (
-    (isLocalhost && env.LOCAL_AUTH_BYPASS === 'true') ||
-    request.headers.has('Cf-Access-Jwt-Assertion')
-  );
+function defaultGatewayFactory(credentials: GoogleSheetsCredentials): TrainingWeeksGateway {
+  return new GoogleSheetsClient(credentials);
 }
 
 function json(

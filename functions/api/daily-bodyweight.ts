@@ -1,27 +1,17 @@
 import type { ApiErrorResponse } from '../../src/contracts/training';
 import type { BodyweightResponse, DailyBodyweightRequest } from '../../src/contracts/body';
-import { GoogleSheetsClient } from '../lib/google-sheets';
+import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
 import { SourceSpreadsheetSchemaError } from '../lib/config';
 import {
   BodyweightConflictError,
   writeDailyBodyweight,
   type BodyTrackingGateway,
 } from '../lib/body-tracking';
+import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
 
-interface Env {
-  GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
-  GOOGLE_PRIVATE_KEY?: string;
-  GOOGLE_SPREADSHEET_ID?: string;
-  LOCAL_AUTH_BYPASS?: string;
-}
+type Env = UserResolutionEnv;
 
-interface RequiredGoogleEnv {
-  GOOGLE_SERVICE_ACCOUNT_EMAIL: string;
-  GOOGLE_PRIVATE_KEY: string;
-  GOOGLE_SPREADSHEET_ID: string;
-}
-
-type GatewayFactory = (env: RequiredGoogleEnv) => BodyTrackingGateway;
+type GatewayFactory = (credentials: GoogleSheetsCredentials) => BodyTrackingGateway;
 
 export const onRequest: PagesFunction<Env> = async (context) =>
   handleDailyBodyweightRequest(context.request, context.env);
@@ -35,15 +25,16 @@ export async function handleDailyBodyweightRequest(
     return json({ error: 'Method not allowed.' }, 405, { Allow: 'PUT' });
   }
 
-  if (!isAuthorized(request, env)) {
+  const userId = resolveUserId(request, env);
+  if (!userId) {
     return json(
       { error: 'Private Tool Access is required. Reload and sign in.' },
       401
     );
   }
 
-  const requiredEnv = configuredGoogleEnv(env);
-  if (!requiredEnv) {
+  const credentials = getSourceCredentials(userId, env);
+  if (!credentials) {
     return json({ error: 'Source Spreadsheet access is not configured.' }, 500);
   }
 
@@ -55,7 +46,7 @@ export async function handleDailyBodyweightRequest(
 
   try {
     const response = await writeDailyBodyweight(
-      createGateway(requiredEnv),
+      createGateway(credentials),
       bodyweightRequest
     );
     return json(response, 200);
@@ -110,36 +101,8 @@ function parseDailyBodyweightRequest(
   };
 }
 
-function defaultGatewayFactory(env: RequiredGoogleEnv): BodyTrackingGateway {
-  return new GoogleSheetsClient({
-    clientEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    privateKey: env.GOOGLE_PRIVATE_KEY,
-    spreadsheetId: env.GOOGLE_SPREADSHEET_ID,
-  });
-}
-
-function configuredGoogleEnv(env: Env): RequiredGoogleEnv | null {
-  if (
-    !env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
-    !env.GOOGLE_PRIVATE_KEY ||
-    !env.GOOGLE_SPREADSHEET_ID
-  ) {
-    return null;
-  }
-  return {
-    GOOGLE_SERVICE_ACCOUNT_EMAIL: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    GOOGLE_PRIVATE_KEY: env.GOOGLE_PRIVATE_KEY,
-    GOOGLE_SPREADSHEET_ID: env.GOOGLE_SPREADSHEET_ID,
-  };
-}
-
-function isAuthorized(request: Request, env: Env): boolean {
-  const hostname = new URL(request.url).hostname;
-  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-  return (
-    (isLocalhost && env.LOCAL_AUTH_BYPASS === 'true') ||
-    request.headers.has('Cf-Access-Jwt-Assertion')
-  );
+function defaultGatewayFactory(credentials: GoogleSheetsCredentials): BodyTrackingGateway {
+  return new GoogleSheetsClient(credentials);
 }
 
 function json(

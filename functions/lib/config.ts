@@ -14,9 +14,6 @@ export const CREATINE_HABIT_KEY = 'creatine';
 
 export const STEPS_SHEET_NAME = 'Steps';
 
-export const PUSH_SUBSCRIPTIONS_KEY = 'push:subscriptions';
-export const REMINDER_DELIVERY_KEY_PREFIX = 'push:reminders:';
-
 export class SourceSpreadsheetSchemaError extends Error {
   constructor(message: string) {
     super(message);

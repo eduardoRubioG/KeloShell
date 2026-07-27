@@ -1,15 +1,12 @@
 import { runConnectivityTest } from '../lib/connectivity';
 import { GoogleSheetsClient } from '../lib/google-sheets';
+import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
 
-interface Env {
-  GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
-  GOOGLE_PRIVATE_KEY?: string;
-  GOOGLE_SPREADSHEET_ID?: string;
+interface Env extends UserResolutionEnv {
   SHEETS_TARGET_LABEL?: string;
   CONNECTIVITY_SHEET_NAME?: string;
   CONNECTIVITY_SENTINEL?: string;
   ALLOW_CONNECTIVITY_WRITE_TEST?: string;
-  LOCAL_AUTH_BYPASS?: string;
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -17,35 +14,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return json({ error: 'Method not allowed.' }, 405, { Allow: 'POST' });
   }
 
-  if (!isAuthorized(context.request, context.env)) {
+  const userId = resolveUserId(context.request, context.env);
+  if (!userId) {
     return json(
       { error: 'Private Tool Access is required. Reload and sign in.' },
       401
     );
   }
 
-  const missing = [
-    ['GOOGLE_SERVICE_ACCOUNT_EMAIL', context.env.GOOGLE_SERVICE_ACCOUNT_EMAIL],
-    ['GOOGLE_PRIVATE_KEY', context.env.GOOGLE_PRIVATE_KEY],
-    ['GOOGLE_SPREADSHEET_ID', context.env.GOOGLE_SPREADSHEET_ID],
-  ].filter(([, value]) => !value);
-
-  if (missing.length > 0) {
+  const credentials = getSourceCredentials(userId, context.env);
+  if (!credentials) {
     return json(
-      {
-        error: `Missing server configuration: ${missing
-          .map(([name]) => name)
-          .join(', ')}.`,
-      },
+      { error: 'Missing server configuration for the Source Spreadsheet.' },
       500
     );
   }
 
-  const client = new GoogleSheetsClient({
-    clientEmail: context.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
-    privateKey: context.env.GOOGLE_PRIVATE_KEY!,
-    spreadsheetId: context.env.GOOGLE_SPREADSHEET_ID!,
-  });
+  const client = new GoogleSheetsClient(credentials);
   const report = await runConnectivityTest(
     {
       target: context.env.SHEETS_TARGET_LABEL ?? 'replica',
@@ -59,16 +44,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   return json(report, 200);
 };
-
-function isAuthorized(request: Request, env: Env): boolean {
-  const hostname = new URL(request.url).hostname;
-  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-  if (isLocalhost && env.LOCAL_AUTH_BYPASS === 'true') {
-    return true;
-  }
-
-  return request.headers.has('Cf-Access-Jwt-Assertion');
-}
 
 function json(
   body: unknown,

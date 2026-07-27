@@ -4,7 +4,7 @@ import type {
   PushSubscriptionPayload,
 } from '../../../src/contracts/push';
 import { SourceSpreadsheetSchemaError } from '../../lib/config';
-import { GoogleSheetsClient } from '../../lib/google-sheets';
+import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../../lib/google-sheets';
 import {
   evaluateReminders,
   reminderNotification,
@@ -24,6 +24,13 @@ import {
   type SendResult,
   type VapidConfig,
 } from '../../lib/web-push';
+import {
+  ALL_USER_IDS,
+  getMetaCredentials,
+  getSourceCredentials,
+  type UserId,
+  type UserResolutionEnv,
+} from '../../lib/users';
 
 const DEFAULT_TIME_ZONE = 'America/New_York';
 const BODY_TRACKING_START_MINUTES = 7 * 60; // 07:00 local
@@ -32,35 +39,22 @@ const MORNING_END_MINUTES = 12 * 60; // noon; keeps the morning steps prompt out
 const CREATINE_START_MINUTES = 21 * 60; // 21:00 local
 const STEPS_EVENING_START_MINUTES = 22 * 60; // 22:00 local
 
-interface Env {
+// The cron worker calls this endpoint with an Access service token, so there is
+// no per-request user identity. Instead the dispatcher fans out over every
+// configured user, reading each one's own spreadsheets and push subscriptions.
+interface Env extends UserResolutionEnv {
   PUSH_KV?: KVNamespace;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
-  GOOGLE_SERVICE_ACCOUNT_EMAIL?: string;
-  GOOGLE_PRIVATE_KEY?: string;
-  GOOGLE_SPREADSHEET_ID?: string;
-  KELOSHELL_META_DB_SHEET?: string;
   REMINDER_DISPATCH_TOKEN?: string;
   REMINDER_TIME_ZONE?: string;
 }
 
-interface RequiredGoogleEnv {
-  GOOGLE_SERVICE_ACCOUNT_EMAIL: string;
-  GOOGLE_PRIVATE_KEY: string;
-  GOOGLE_SPREADSHEET_ID: string;
-}
-
-interface RequiredHabitsEnv {
-  GOOGLE_SERVICE_ACCOUNT_EMAIL: string;
-  GOOGLE_PRIVATE_KEY: string;
-  KELOSHELL_META_DB_SHEET: string;
-}
-
 interface Dependencies {
   now: () => Date;
-  createGateway: (env: RequiredGoogleEnv) => ReminderGateway;
-  createHabitsGateway: (env: RequiredHabitsEnv) => HabitsGateway;
+  createGateway: (credentials: GoogleSheetsCredentials) => ReminderGateway;
+  createHabitsGateway: (credentials: GoogleSheetsCredentials) => HabitsGateway;
   sendPush: (
     subscription: PushSubscriptionPayload,
     notification: PushNotificationPayload,
@@ -70,20 +64,24 @@ interface Dependencies {
 
 const defaultDependencies: Dependencies = {
   now: () => new Date(),
-  createGateway: (env) =>
-    new GoogleSheetsClient({
-      clientEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      privateKey: env.GOOGLE_PRIVATE_KEY,
-      spreadsheetId: env.GOOGLE_SPREADSHEET_ID,
-    }),
-  createHabitsGateway: (env) =>
-    new GoogleSheetsClient({
-      clientEmail: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      privateKey: env.GOOGLE_PRIVATE_KEY,
-      spreadsheetId: env.KELOSHELL_META_DB_SHEET,
-    }),
+  createGateway: (credentials) => new GoogleSheetsClient(credentials),
+  createHabitsGateway: (credentials) => new GoogleSheetsClient(credentials),
   sendPush: sendWebPush,
 };
+
+interface LocalDateTime {
+  date: string;
+  hour: number;
+  minute: number;
+}
+
+interface UserDispatchResult {
+  id: UserId;
+  sent: number;
+  reminders: ReminderKind[];
+  skipped?: string;
+  error?: string;
+}
 
 export const onRequest: PagesFunction<Env> = (context) =>
   handleDispatchRemindersRequest(context.request, context.env);
@@ -102,12 +100,11 @@ export async function handleDispatchRemindersRequest(
   }
 
   const vapid = configuredVapid(env);
-  const google = configuredGoogleEnv(env);
-  if (!vapid || !google || !env.PUSH_KV) {
+  if (!vapid || !env.PUSH_KV) {
     return json({ error: 'Scheduled reminders are not configured.' }, 503);
   }
 
-  let local: { date: string; hour: number; minute: number };
+  let local: LocalDateTime;
   try {
     local = localDateTime(
       dependencies.now(),
@@ -118,25 +115,60 @@ export async function handleDispatchRemindersRequest(
   }
 
   const force = new URL(request.url).searchParams.get('force') === 'true';
+
+  // No per-request identity here (cron uses an Access service token), so dispatch
+  // for every configured user. One user's missing config or empty subscription
+  // list is recorded on that user's result rather than failing the whole run.
+  const users: UserDispatchResult[] = [];
+  let sent = 0;
+  for (const userId of ALL_USER_IDS) {
+    const result = await dispatchForUser(
+      userId,
+      env,
+      env.PUSH_KV,
+      dependencies,
+      vapid,
+      local,
+      force
+    );
+    users.push(result);
+    sent += result.sent;
+  }
+
+  return json({ date: local.date, sent, users }, 200);
+}
+
+async function dispatchForUser(
+  userId: UserId,
+  env: Env,
+  kv: KVNamespace,
+  deps: Dependencies,
+  vapid: VapidConfig,
+  local: LocalDateTime,
+  force: boolean
+): Promise<UserDispatchResult> {
+  const source = getSourceCredentials(userId, env);
+  const meta = getMetaCredentials(userId, env);
+  if (!source && !meta) {
+    return { id: userId, sent: 0, reminders: [], skipped: 'not-configured' };
+  }
+
   const minuteOfDay = local.hour * 60 + local.minute;
   const activeReminders: ReminderKind[] = [];
   let evaluatedAny = false;
 
-  if (force || minuteOfDay >= BODY_TRACKING_START_MINUTES) {
+  if (source && (force || minuteOfDay >= BODY_TRACKING_START_MINUTES)) {
     evaluatedAny = true;
     try {
       activeReminders.push(
-        ...(await evaluateReminders(dependencies.createGateway(google), local.date))
+        ...(await evaluateReminders(deps.createGateway(source), local.date))
       );
     } catch (error) {
       if (error instanceof SourceSpreadsheetSchemaError) {
-        return json(
-          { error: 'The Source Spreadsheet structure could not be interpreted.' },
-          422
-        );
+        return { id: userId, sent: 0, reminders: [], error: 'source-schema' };
       }
-      console.error('[push/dispatch-reminders] spreadsheet read failed:', error);
-      return json({ error: 'The Source Spreadsheet could not be read.' }, 502);
+      console.error(`[push/dispatch-reminders] ${userId} spreadsheet read failed:`, error);
+      return { id: userId, sent: 0, reminders: [], error: 'source-read' };
     }
   }
 
@@ -146,17 +178,16 @@ export async function handleDispatchRemindersRequest(
     force ||
     (minuteOfDay >= STEPS_MORNING_START_MINUTES && minuteOfDay < MORNING_END_MINUTES);
 
-  const habits = configuredHabitsEnv(env);
-  if (habits && (creatineDue || stepsEveningDue || stepsMorningDue)) {
+  if (meta && (creatineDue || stepsEveningDue || stepsMorningDue)) {
     evaluatedAny = true;
-    const habitsGateway = dependencies.createHabitsGateway(habits);
+    const habitsGateway = deps.createHabitsGateway(meta);
 
     if (creatineDue) {
       try {
         const creatineDates = await readCreatineDates(habitsGateway);
         if (!creatineDates.has(local.date)) activeReminders.push('creatine');
       } catch (error) {
-        console.error('[push/dispatch-reminders] habits read failed:', error);
+        console.error(`[push/dispatch-reminders] ${userId} habits read failed:`, error);
       }
     }
 
@@ -170,37 +201,33 @@ export async function handleDispatchRemindersRequest(
           activeReminders.push('steps-yesterday');
         }
       } catch (error) {
-        console.error('[push/dispatch-reminders] steps read failed:', error);
+        console.error(`[push/dispatch-reminders] ${userId} steps read failed:`, error);
       }
     }
   }
 
   if (!evaluatedAny) {
-    return json({ date: local.date, sent: 0, reminders: [], skipped: 'outside-window' }, 200);
+    return { id: userId, sent: 0, reminders: [], skipped: 'outside-window' };
   }
 
-  const delivered = await listDeliveredReminders(env.PUSH_KV, local.date);
+  const delivered = await listDeliveredReminders(kv, userId, local.date);
   const pending = activeReminders.filter((kind) => !delivered.includes(kind));
   if (pending.length === 0) {
-    return json(
-      {
-        date: local.date,
-        sent: 0,
-        reminders: [],
-        skipped: activeReminders.length > 0 ? 'already-delivered' : 'not-due',
-      },
-      200
-    );
+    return {
+      id: userId,
+      sent: 0,
+      reminders: [],
+      skipped: activeReminders.length > 0 ? 'already-delivered' : 'not-due',
+    };
   }
 
-  const subscriptions = await listSubscriptions(env.PUSH_KV);
+  const subscriptions = await listSubscriptions(kv, userId);
   if (subscriptions.length === 0) {
-    return json({ error: 'No push subscriptions found.' }, 404);
+    return { id: userId, sent: 0, reminders: [], skipped: 'no-subscriptions' };
   }
 
   const staleEndpoints = new Set<string>();
   const successfulKinds: ReminderKind[] = [];
-  const statuses: number[] = [];
   let sent = 0;
 
   for (const kind of pending) {
@@ -209,16 +236,14 @@ export async function handleDispatchRemindersRequest(
     await Promise.all(
       subscriptions.map(async (subscription) => {
         try {
-          const result = await dependencies.sendPush(subscription, notification, vapid);
-          statuses.push(result.status);
+          const result = await deps.sendPush(subscription, notification, vapid);
           if (result.stale) staleEndpoints.add(subscription.endpoint);
           if (result.success) {
             kindSent += 1;
             sent += 1;
           }
         } catch (error) {
-          console.error('[push/dispatch-reminders] sendWebPush threw:', error);
-          statuses.push(0);
+          console.error(`[push/dispatch-reminders] ${userId} sendWebPush threw:`, error);
         }
       })
     );
@@ -226,29 +251,16 @@ export async function handleDispatchRemindersRequest(
   }
 
   if (staleEndpoints.size > 0) {
-    await pruneSubscriptions(env.PUSH_KV, [...staleEndpoints]);
+    await pruneSubscriptions(kv, userId, [...staleEndpoints]);
   }
   if (successfulKinds.length > 0) {
-    await recordDeliveredReminders(env.PUSH_KV, local.date, successfulKinds);
+    await recordDeliveredReminders(kv, userId, local.date, successfulKinds);
   }
 
-  if (sent === 0 && staleEndpoints.size === subscriptions.length) {
-    return json(
-      { error: 'All subscriptions were expired and have been removed.', statuses },
-      410
-    );
-  }
-  if (sent === 0) {
-    return json({ error: 'The reminders could not be delivered.', statuses }, 502);
-  }
-
-  return json({ date: local.date, sent, reminders: successfulKinds }, 200);
+  return { id: userId, sent, reminders: successfulKinds };
 }
 
-export function localDateTime(
-  now: Date,
-  timeZone: string
-): { date: string; hour: number; minute: number } {
+export function localDateTime(now: Date, timeZone: string): LocalDateTime {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     year: 'numeric',
@@ -294,36 +306,6 @@ function configuredVapid(env: Env): VapidConfig | null {
     publicKey: env.VAPID_PUBLIC_KEY,
     privateKey: env.VAPID_PRIVATE_KEY,
     subject: env.VAPID_SUBJECT,
-  };
-}
-
-function configuredGoogleEnv(env: Env): RequiredGoogleEnv | null {
-  if (
-    !env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
-    !env.GOOGLE_PRIVATE_KEY ||
-    !env.GOOGLE_SPREADSHEET_ID
-  ) {
-    return null;
-  }
-  return {
-    GOOGLE_SERVICE_ACCOUNT_EMAIL: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    GOOGLE_PRIVATE_KEY: env.GOOGLE_PRIVATE_KEY,
-    GOOGLE_SPREADSHEET_ID: env.GOOGLE_SPREADSHEET_ID,
-  };
-}
-
-function configuredHabitsEnv(env: Env): RequiredHabitsEnv | null {
-  if (
-    !env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
-    !env.GOOGLE_PRIVATE_KEY ||
-    !env.KELOSHELL_META_DB_SHEET
-  ) {
-    return null;
-  }
-  return {
-    GOOGLE_SERVICE_ACCOUNT_EMAIL: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    GOOGLE_PRIVATE_KEY: env.GOOGLE_PRIVATE_KEY,
-    KELOSHELL_META_DB_SHEET: env.KELOSHELL_META_DB_SHEET,
   };
 }
 

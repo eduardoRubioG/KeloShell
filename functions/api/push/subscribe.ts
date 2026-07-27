@@ -1,10 +1,10 @@
 import type { PushSubscriptionPayload, PushSubscribeResponse } from '../../../src/contracts/push';
 import type { ApiErrorResponse } from '../../../src/contracts/training';
 import { addSubscription } from '../../lib/push-store';
+import { resolveUserId, type UserResolutionEnv } from '../../lib/users';
 
-interface Env {
+interface Env extends UserResolutionEnv {
   PUSH_KV?: KVNamespace;
-  LOCAL_AUTH_BYPASS?: string;
 }
 
 export const onRequest: PagesFunction<Env> = (context) =>
@@ -15,7 +15,8 @@ export async function handleSubscribeRequest(request: Request, env: Env): Promis
     return json({ error: 'Method not allowed.' }, 405, { Allow: 'POST' });
   }
 
-  if (!isAuthorized(request, env)) {
+  const userId = resolveUserId(request, env);
+  if (!userId) {
     return json({ error: 'Private Tool Access is required. Reload and sign in.' }, 401);
   }
 
@@ -29,7 +30,7 @@ export async function handleSubscribeRequest(request: Request, env: Env): Promis
     return json({ error: 'A valid push subscription is required.' }, 400);
   }
 
-  await addSubscription(env.PUSH_KV, subscription);
+  await addSubscription(env.PUSH_KV, userId, subscription);
   return json({ subscribed: true }, 200);
 }
 
@@ -44,15 +45,6 @@ function parseSubscription(value: unknown): PushSubscriptionPayload | null {
   const keys = s.keys as Record<string, unknown>;
   if (typeof keys.p256dh !== 'string' || typeof keys.auth !== 'string') return null;
   return { endpoint: s.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } };
-}
-
-function isAuthorized(request: Request, env: Env): boolean {
-  const hostname = new URL(request.url).hostname;
-  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-  return (
-    (isLocalhost && env.LOCAL_AUTH_BYPASS === 'true') ||
-    request.headers.has('Cf-Access-Jwt-Assertion')
-  );
 }
 
 function json(

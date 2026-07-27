@@ -1,6 +1,7 @@
-interface Env {
+import { resolveUserId, type UserResolutionEnv } from '../../lib/users';
+
+interface Env extends UserResolutionEnv {
   VAPID_PUBLIC_KEY?: string;
-  LOCAL_AUTH_BYPASS?: string;
 }
 
 export const onRequest: PagesFunction<Env> = (context) =>
@@ -11,7 +12,7 @@ export function handleVapidPublicKeyRequest(request: Request, env: Env): Respons
     return json({ error: 'Method not allowed.' }, 405, { Allow: 'GET' });
   }
 
-  if (!isAuthorized(request, env)) {
+  if (!resolveUserId(request, env)) {
     return json({ error: 'Private Tool Access is required. Reload and sign in.' }, 401);
   }
 
@@ -20,15 +21,6 @@ export function handleVapidPublicKeyRequest(request: Request, env: Env): Respons
   }
 
   return json({ publicKey: env.VAPID_PUBLIC_KEY }, 200);
-}
-
-function isAuthorized(request: Request, env: Env): boolean {
-  const hostname = new URL(request.url).hostname;
-  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-  return (
-    (isLocalhost && env.LOCAL_AUTH_BYPASS === 'true') ||
-    request.headers.has('Cf-Access-Jwt-Assertion')
-  );
 }
 
 function json(

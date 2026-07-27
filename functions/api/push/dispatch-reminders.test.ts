@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PushNotificationPayload } from '../../../src/contracts/push';
 import type { ReminderGateway } from '../../lib/reminders';
 import type { HabitsGateway } from '../../lib/streaks';
+import type { UserId } from '../../lib/users';
 import { addSubscription } from '../../lib/push-store';
 import {
   handleDispatchRemindersRequest,
@@ -14,6 +15,30 @@ const DAY = 86_400_000;
 
 function serial(isoDate: string): number {
   return (Date.parse(`${isoDate}T00:00:00Z`) - SHEETS_EPOCH) / DAY;
+}
+
+interface UserResult {
+  id: UserId;
+  sent: number;
+  reminders?: string[];
+  skipped?: string;
+  error?: string;
+}
+
+interface DispatchBody {
+  date: string;
+  sent: number;
+  users: UserResult[];
+}
+
+async function body(response: Response): Promise<DispatchBody> {
+  return (await response.json()) as DispatchBody;
+}
+
+function userOf(dispatch: DispatchBody, id: UserId = 'eduardo'): UserResult {
+  const result = dispatch.users.find((user) => user.id === id);
+  if (!result) throw new Error(`Expected a dispatch result for ${id}`);
+  return result;
 }
 
 function makeMockKV(): KVNamespace {
@@ -123,15 +148,30 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      sent: 0,
-      skipped: 'outside-window',
-    });
+    const dispatch = await body(response);
+    expect(dispatch.sent).toBe(0);
+    expect(userOf(dispatch)).toMatchObject({ sent: 0, skipped: 'outside-window' });
+  });
+
+  it('marks an unconfigured user as not-configured', async () => {
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnv(makeMockKV()),
+      {
+        now: () => new Date('2026-07-01T11:00:00Z'),
+        createGateway: () => makeGateway(225, []),
+        createHabitsGateway: noHabitsConfigured,
+        sendPush: vi.fn(),
+      }
+    );
+
+    const dispatch = await body(response);
+    expect(userOf(dispatch, 'emily')).toMatchObject({ sent: 0, skipped: 'not-configured' });
   });
 
   it('still delivers a scheduler run delayed past the 7am hour', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -155,8 +195,10 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      date: '2026-07-01',
+    const dispatch = await body(response);
+    expect(dispatch.date).toBe('2026-07-01');
+    expect(dispatch.sent).toBe(2);
+    expect(userOf(dispatch)).toMatchObject({
       sent: 2,
       reminders: ['bodyweight', 'measurement'],
     });
@@ -164,7 +206,7 @@ describe('POST /api/push/dispatch-reminders', () => {
 
   it('delivers both due reminders to every subscription at 7am', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -185,8 +227,10 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      date: '2026-07-01',
+    const dispatch = await body(response);
+    expect(dispatch.date).toBe('2026-07-01');
+    expect(dispatch.sent).toBe(2);
+    expect(userOf(dispatch)).toMatchObject({
       sent: 2,
       reminders: ['bodyweight', 'measurement'],
     });
@@ -198,7 +242,7 @@ describe('POST /api/push/dispatch-reminders', () => {
 
   it('does not redeliver a reminder already sent for the Local Calendar Date', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -223,7 +267,7 @@ describe('POST /api/push/dispatch-reminders', () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    await expect(second.json()).resolves.toMatchObject({
+    expect(userOf(await body(second))).toMatchObject({
       sent: 0,
       skipped: 'already-delivered',
     });
@@ -243,12 +287,12 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ skipped: 'not-due' });
+    expect(userOf(await body(response))).toMatchObject({ skipped: 'not-due' });
   });
 
   it('does not evaluate creatine before 9pm even if bodyweight is due', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -270,12 +314,12 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(habitsGateway).not.toHaveBeenCalled();
-    await expect(response.json()).resolves.toMatchObject({ skipped: 'not-due' });
+    expect(userOf(await body(response))).toMatchObject({ skipped: 'not-due' });
   });
 
   it('delivers a creatine reminder at 9pm when not logged today', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -297,17 +341,16 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      date: '2026-07-01',
-      sent: 1,
-      reminders: ['creatine'],
-    });
+    const dispatch = await body(response);
+    expect(dispatch.date).toBe('2026-07-01');
+    expect(dispatch.sent).toBe(1);
+    expect(userOf(dispatch)).toMatchObject({ sent: 1, reminders: ['creatine'] });
     expect(notifications.map((item) => item.title)).toEqual(['Creatine Reminder']);
   });
 
   it('does not remind about creatine already logged today', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -324,7 +367,7 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    expect(userOf(await body(response))).toMatchObject({
       sent: 0,
       skipped: 'not-due',
     });
@@ -332,7 +375,7 @@ describe('POST /api/push/dispatch-reminders', () => {
 
   it('does not evaluate steps before 10pm', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -350,7 +393,7 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    expect(userOf(await body(response))).toMatchObject({
       sent: 0,
       skipped: 'not-due',
     });
@@ -358,7 +401,7 @@ describe('POST /api/push/dispatch-reminders', () => {
 
   it('delivers an evening steps reminder at 10pm when today is unlogged', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -380,18 +423,17 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      date: '2026-07-01',
-      sent: 1,
-      reminders: ['steps'],
-    });
+    const dispatch = await body(response);
+    expect(dispatch.date).toBe('2026-07-01');
+    expect(dispatch.sent).toBe(1);
+    expect(userOf(dispatch)).toMatchObject({ sent: 1, reminders: ['steps'] });
     expect(notifications.map((item) => item.title)).toEqual(['Steps Reminder']);
     expect(notifications[0].url).toBe('/steps?date=2026-07-01');
   });
 
   it('does not remind about steps already logged today at 10pm', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -408,7 +450,7 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    expect(userOf(await body(response))).toMatchObject({
       sent: 0,
       skipped: 'not-due',
     });
@@ -416,7 +458,7 @@ describe('POST /api/push/dispatch-reminders', () => {
 
   it('delivers a morning steps reminder at 7:30am when yesterday is unlogged', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -438,18 +480,17 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      date: '2026-07-02',
-      sent: 1,
-      reminders: ['steps-yesterday'],
-    });
+    const dispatch = await body(response);
+    expect(dispatch.date).toBe('2026-07-02');
+    expect(dispatch.sent).toBe(1);
+    expect(userOf(dispatch)).toMatchObject({ sent: 1, reminders: ['steps-yesterday'] });
     expect(notifications.map((item) => item.title)).toEqual(['Steps Reminder']);
     expect(notifications[0].url).toBe('/steps?date=2026-07-01');
   });
 
   it('does not send the morning steps reminder when yesterday is already logged', async () => {
     const kv = makeMockKV();
-    await addSubscription(kv, {
+    await addSubscription(kv, 'eduardo', {
       endpoint: 'https://push.example.com/one',
       keys: { p256dh: 'dh', auth: 'auth' },
     });
@@ -466,10 +507,56 @@ describe('POST /api/push/dispatch-reminders', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    expect(userOf(await body(response))).toMatchObject({
       sent: 0,
       skipped: 'not-due',
     });
+  });
+
+  it('dispatches each user from their own sheets and subscriptions', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, 'eduardo', {
+      endpoint: 'https://push.example.com/eduardo',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+    await addSubscription(kv, 'emily', {
+      endpoint: 'https://push.example.com/emily',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+    const sends: Array<{ endpoint: string; title: string }> = [];
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      {
+        ...configuredEnvWithHabits(kv),
+        EMILY_GOOGLE_SPREADSHEET_ID: 'emily-sheet-id',
+        EMILY_META_DB_SHEET: 'emily-meta-id',
+      },
+      {
+        // 9pm EDT on July 1st: only creatine is due.
+        now: () => new Date('2026-07-02T01:00:00Z'),
+        createGateway: () => makeGateway(225, []),
+        // Eduardo has not logged creatine; Emily has.
+        createHabitsGateway: (credentials) =>
+          credentials.spreadsheetId === 'emily-meta-id'
+            ? makeHabitsGateway(['2026-07-01'])
+            : makeHabitsGateway([]),
+        sendPush: async (subscription, notification) => {
+          sends.push({ endpoint: subscription.endpoint, title: notification.title });
+          return { success: true, stale: false, status: 201 };
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const dispatch = await body(response);
+    expect(dispatch.sent).toBe(1);
+    expect(userOf(dispatch, 'eduardo')).toMatchObject({ sent: 1, reminders: ['creatine'] });
+    expect(userOf(dispatch, 'emily')).toMatchObject({ sent: 0, skipped: 'not-due' });
+    // Only Eduardo's endpoint received a push.
+    expect(sends).toEqual([
+      { endpoint: 'https://push.example.com/eduardo', title: 'Creatine Reminder' },
+    ]);
   });
 });
 

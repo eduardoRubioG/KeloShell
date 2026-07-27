@@ -2,13 +2,13 @@ import type { ApiErrorResponse } from '../../../src/contracts/training';
 import type { PushNotificationPayload } from '../../../src/contracts/push';
 import { listSubscriptions, pruneSubscriptions } from '../../lib/push-store';
 import { sendWebPush, type VapidConfig } from '../../lib/web-push';
+import { resolveUserId, type UserResolutionEnv } from '../../lib/users';
 
-interface Env {
+interface Env extends UserResolutionEnv {
   PUSH_KV?: KVNamespace;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
-  LOCAL_AUTH_BYPASS?: string;
 }
 
 export const onRequest: PagesFunction<Env> = (context) =>
@@ -19,7 +19,8 @@ export async function handleTestRequest(request: Request, env: Env): Promise<Res
     return json({ error: 'Method not allowed.' }, 405, { Allow: 'POST' });
   }
 
-  if (!isAuthorized(request, env)) {
+  const userId = resolveUserId(request, env);
+  if (!userId) {
     return json({ error: 'Private Tool Access is required. Reload and sign in.' }, 401);
   }
 
@@ -28,7 +29,7 @@ export async function handleTestRequest(request: Request, env: Env): Promise<Res
     return json({ error: 'Push notifications are not configured.' }, 503);
   }
 
-  const subscriptions = await listSubscriptions(env.PUSH_KV);
+  const subscriptions = await listSubscriptions(env.PUSH_KV, userId);
   if (subscriptions.length === 0) {
     return json({ error: 'No push subscriptions found.' }, 404);
   }
@@ -60,7 +61,7 @@ export async function handleTestRequest(request: Request, env: Env): Promise<Res
   );
 
   if (staleEndpoints.length > 0) {
-    await pruneSubscriptions(env.PUSH_KV, staleEndpoints);
+    await pruneSubscriptions(env.PUSH_KV, userId, staleEndpoints);
   }
 
   if (successCount === 0 && staleEndpoints.length === subscriptions.length) {
@@ -81,15 +82,6 @@ function configuredVapid(env: Env): VapidConfig | null {
     privateKey: env.VAPID_PRIVATE_KEY,
     subject: env.VAPID_SUBJECT,
   };
-}
-
-function isAuthorized(request: Request, env: Env): boolean {
-  const hostname = new URL(request.url).hostname;
-  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
-  return (
-    (isLocalhost && env.LOCAL_AUTH_BYPASS === 'true') ||
-    request.headers.has('Cf-Access-Jwt-Assertion')
-  );
 }
 
 function json(

@@ -30,8 +30,26 @@ Set these as production secrets or environment variables for the Pages project:
 - `GOOGLE_SPREADSHEET_ID`
 - `KELOSHELL_META_DB_SHEET`
 - `REMINDER_DISPATCH_TOKEN`
+- `EMILY_GOOGLE_SPREADSHEET_ID`
+- `EMILY_META_DB_SHEET`
+- `EMILY_EMAIL`
+- `EDUARDO_EMAIL` (optional — defaults to Eduardo's known Google address)
 
 The service account email and private key stay the same as in replica testing. Only the spreadsheet ID changes at cutover. `KELOSHELL_META_DB_SHEET` points to the separate KeloShell meta database spreadsheet (not the Source Spreadsheet).
+
+## Multiple users
+
+KeloShell serves two people (Eduardo and Emily), each with their own coach training-source spreadsheet and their own meta DB. Requests are attributed to a user by the Cloudflare Access email:
+
+- `resolveUserId` (in `functions/lib/users.ts`) matches the signed-in `Cf-Access-Authenticated-User-Email` against `EDUARDO_EMAIL` / `EMILY_EMAIL`, then serves that user's spreadsheets. The shared service account is granted Editor on all four spreadsheets; only the spreadsheet IDs differ.
+- Push subscriptions and reminder-delivery records are namespaced per user in KV (`push:subscriptions:<id>`, `push:reminders:<id>:<date>`), so `/api/push/dispatch-reminders` reads each user's own sheets and subscriptions in one run.
+
+To onboard Emily:
+
+1. **Cloudflare Access:** add `EMILY_EMAIL` to the Access application's allow policy so she can reach the app.
+2. **Google:** create her training-source spreadsheet and her meta DB, share both with `GOOGLE_SERVICE_ACCOUNT_EMAIL` as Editor, and seed her `_PWA_CONNECTIVITY`, `Habits`, and `Steps` tabs (same layout as Eduardo's, described below).
+3. **Pages env:** set `EMILY_EMAIL`, `EMILY_GOOGLE_SPREADSHEET_ID`, `EMILY_META_DB_SHEET` (and `EDUARDO_EMAIL`), then redeploy — Pages Functions bake env values in at deploy time.
+4. She opens the app and allows notifications so her push subscription registers under `push:subscriptions:emily`.
 
 ## Before cutover
 
@@ -52,8 +70,12 @@ Use the following values when you are ready to switch production over:
 SHEETS_TARGET_LABEL=source
 GOOGLE_SERVICE_ACCOUNT_EMAIL=<service-account-email-from-google-cloud>
 GOOGLE_PRIVATE_KEY=<private-key-from-the-same-service-account-json>
-GOOGLE_SPREADSHEET_ID=<source-spreadsheet-id>
-KELOSHELL_META_DB_SHEET=<meta-db-spreadsheet-id>
+GOOGLE_SPREADSHEET_ID=<eduardo-source-spreadsheet-id>
+KELOSHELL_META_DB_SHEET=<eduardo-meta-db-spreadsheet-id>
+EMILY_GOOGLE_SPREADSHEET_ID=<emily-source-spreadsheet-id>
+EMILY_META_DB_SHEET=<emily-meta-db-spreadsheet-id>
+EDUARDO_EMAIL=<eduardo-cloudflare-access-email>
+EMILY_EMAIL=<emily-cloudflare-access-email>
 ALLOW_CONNECTIVITY_WRITE_TEST=false
 REMINDER_TIME_ZONE=America/New_York
 REMINDER_DISPATCH_TOKEN=<same-random-token-as-the-GitHub-Actions-secret>

@@ -22,6 +22,10 @@
     //   npx wrangler pages secret put VAPID_PRIVATE_KEY
     "VAPID_PUBLIC_KEY": "BNYl33LuklS1NYrGhH1wi9SaWgeTabIHRVevlcuzA9j7D3SVFkd6q1i1M0DAKjiITtJHCy5jzzYSc4jjCoBYMik",
     "VAPID_SUBJECT": "mailto:eduardo.rubio.jr85@gmail.com",
+    // Cloudflare Access emails → user identity (see functions/lib/users.ts).
+    // Non-secret; kept here so preview/dev resolve the same users as production.
+    "EDUARDO_EMAIL": "eduardo.rubio.jr85@gmail.com",
+    "EMILY_EMAIL": "emily.marosek@gmail.com",
   },
   "env": {
     "production": {
@@ -37,6 +41,13 @@
         "REMINDER_TIME_ZONE": "America/New_York",
         "VAPID_PUBLIC_KEY": "BNYl33LuklS1NYrGhH1wi9SaWgeTabIHRVevlcuzA9j7D3SVFkd6q1i1M0DAKjiITtJHCy5jzzYSc4jjCoBYMik",
         "VAPID_SUBJECT": "mailto:eduardo.rubio.jr85@gmail.com",
+        "EDUARDO_EMAIL": "eduardo.rubio.jr85@gmail.com",
+        "EMILY_EMAIL": "emily.marosek@gmail.com",
+        // Emily's own coach training-source spreadsheet and app-owned meta DB.
+        // Eduardo's equivalents (GOOGLE_SPREADSHEET_ID / KELOSHELL_META_DB_SHEET)
+        // stay as Cloudflare-managed values; runtime env merges both.
+        "EMILY_GOOGLE_SPREADSHEET_ID": "1kA7F2KRGlL2TOKF06hSPrHdvdq54UrBkFO1cWXt7FHU",
+        "EMILY_META_DB_SHEET": "1HOr8i6UY9UntT1e94O2y6zVfWEoH2wAj6hvffptFXBE",
       },
     },
   },
