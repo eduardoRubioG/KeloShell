@@ -75,17 +75,33 @@ export async function readTrainingWeeks(
   const availableWeeks = weeks.filter(
     (week) => week.availability === 'available'
   );
-  const firstUnfinished = availableWeeks.find(hasUntouchedSession);
 
   return {
-    defaultWeekId:
-      firstUnfinished?.id ?? availableWeeks.at(-1)?.id ?? null,
+    defaultWeekId: pickDefaultWeek(availableWeeks)?.id ?? null,
     weeks,
   };
 }
 
-function hasUntouchedSession(week: TrainingWeekSummary): boolean {
-  return week.sessions.some((session) => session.status === 'not-started');
+/**
+ * Resumes at the most recently touched week. A week left permanently
+ * partial by an intentionally skipped session must not trap the default
+ * there forever once later weeks are underway, so a *complete* last-touched
+ * week advances to whatever comes next; a still-partial one stays put.
+ * Nothing touched yet defaults to the first available week.
+ */
+function pickDefaultWeek(
+  availableWeeks: readonly TrainingWeekSummary[]
+): TrainingWeekSummary | undefined {
+  for (let index = availableWeeks.length - 1; index >= 0; index -= 1) {
+    const week = availableWeeks[index];
+    if (week.status === 'not-started') {
+      continue;
+    }
+    return week.status === 'complete'
+      ? availableWeeks[index + 1] ?? week
+      : week;
+  }
+  return availableWeeks[0];
 }
 
 async function readParsedSessions(

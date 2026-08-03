@@ -272,6 +272,36 @@ describe('readTrainingWeeks', () => {
     expect(response.defaultWeekId).toBe('2026-06-28');
   });
 
+  it('advances past a week left permanently partial by a skipped session once later weeks are underway', async () => {
+    const touchedSheet = makeSheet([
+      {
+        weeks: [
+          { displayDate: '6/14', rawDate: '2026-06-14', weight: 100, sets: [8, 8, 8] },
+          { displayDate: '6/21', rawDate: '2026-06-21', weight: 100, sets: [8, 8, 8] },
+          { displayDate: '6/28', rawDate: '2026-06-28' },
+        ],
+      },
+    ]);
+    const skippedSheet = makeSheet([
+      {
+        weeks: [
+          { displayDate: '6/14', rawDate: '2026-06-14' },
+          { displayDate: '6/21', rawDate: '2026-06-21', weight: 100, sets: [8, 8, 8] },
+          { displayDate: '6/28', rawDate: '2026-06-28' },
+        ],
+      },
+    ]);
+
+    const response = await readTrainingWeeks(
+      gatewayFor([touchedSheet, touchedSheet, touchedSheet, skippedSheet])
+    );
+
+    expect(response.weeks[0].status).toBe('partial');
+    expect(response.weeks[1].status).toBe('complete');
+    expect(response.weeks[2].status).toBe('not-started');
+    expect(response.defaultWeekId).toBe('2026-06-28');
+  });
+
   it('treats a week as unfinished when even one of its sessions was never started', async () => {
     const touchedSheet = makeSheet([
       {
