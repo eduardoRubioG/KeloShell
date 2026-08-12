@@ -13,7 +13,11 @@ import { SESSION_NAMES, SourceSpreadsheetSchemaError } from './config';
 export { SESSION_NAMES, SourceSpreadsheetSchemaError } from './config';
 
 const LIFT_GROUP_WIDTH = 6;
-const MAX_LIFT_GROUPS = 7;
+// Widened from 7 to 14 after Emily's "Full A" (Monday) session silently lost
+// its trailing abdominal exercises: the sheet range and this scan limit both
+// capped out at 7 lift blocks (42 columns, A:AP), so anything programmed
+// after the 7th exercise was never read at all.
+const MAX_LIFT_GROUPS = 14;
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 
 export interface TrainingWeeksGateway {
@@ -108,8 +112,8 @@ async function readParsedSessions(
   gateway: TrainingWeeksGateway,
   sessionNames: readonly string[]
 ): Promise<ParsedSession[]> {
-  const gridRanges = sessionNames.map((name) => `'${name}'!A:AP`);
-  const formattedGridRanges = sessionNames.map((name) => `'${name}'!A:AP`);
+  const gridRanges = sessionNames.map((name) => `'${name}'!A:CF`);
+  const formattedGridRanges = sessionNames.map((name) => `'${name}'!A:CF`);
   const unformattedGrids = await gateway.readRanges(
     gridRanges,
     'UNFORMATTED_VALUE'

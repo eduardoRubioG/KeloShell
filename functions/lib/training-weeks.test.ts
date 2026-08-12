@@ -585,6 +585,57 @@ describe('readTrainingWeeks', () => {
     expect(response.defaultWeekId).toBeNull();
     expect(response.weeks[0].availability).toBe('unavailable');
   });
+
+  it('parses an 8th lift group instead of silently dropping it (regression: trailing exercises like abs vanishing)', async () => {
+    const liftNames = [
+      'Squat',
+      'Bench',
+      'Row',
+      'Overhead Press',
+      'Lat Pulldown',
+      'Leg Curl',
+      'Face Pull',
+      'Cable Crunch',
+    ];
+    const grid: unknown[][] = [];
+    liftNames.forEach((name, groupIndex) => {
+      const col = groupIndex * 6;
+      grid[0] = grid[0] ?? [];
+      grid[1] = grid[1] ?? [];
+      grid[2] = grid[2] ?? [];
+      grid[3] = grid[3] ?? [];
+      grid[4] = grid[4] ?? [];
+      grid[0][col] = 'Lift';
+      grid[0][col + 1] = name;
+      grid[1][col] = 'Progression';
+      grid[1][col + 1] = 'Dynamic DP';
+      grid[2][col] = 'Sets';
+      grid[2][col + 1] = 3;
+      grid[3][col] = 'Reps';
+      grid[3][col + 1] = '6-8';
+      grid[4][col] = 'Cue';
+      grid[4][col + 1] = 'Controlled reps';
+    });
+    grid[5] = ['Week', 'Weight', 1, 2, 3, 4];
+    const weekRow: unknown[] = [serial('2026-06-28')];
+    liftNames.forEach((_, groupIndex) => {
+      const col = groupIndex * 6;
+      weekRow[col + 1] = 100 + groupIndex;
+      weekRow[col + 2] = 8;
+      weekRow[col + 3] = 8;
+      weekRow[col + 4] = 7;
+    });
+    grid[6] = weekRow;
+    const dates: unknown[][] = [[], [], [], [], [], [], ['6/28']];
+
+    const sheets = Array.from({ length: 4 }, () => ({ grid, dates }));
+    const response = await readTrainingWeeks(gatewayFor(sheets));
+
+    expect(response.weeks[0].sessions[0].totalLifts).toBe(8);
+    expect(
+      response.weeks[0].sessions[0].lifts.map((lift) => lift.name)
+    ).toEqual(liftNames);
+  });
 });
 
 describe('writeLiftLog', () => {
