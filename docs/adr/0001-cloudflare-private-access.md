@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Partially superseded by ADR-0003. Cloudflare hosting and the same-origin spreadsheet proxy remain accepted; Cloudflare Access is no longer the Subscriber identity model for the paid pilot.
 
 ## Context
 
