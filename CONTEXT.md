@@ -1,6 +1,6 @@
 # Bodybuilding Coach PWA
 
-This context describes a mobile workout logging companion that presents a gym-friendly UI over Eduardo's coach-managed bodybuilding spreadsheet.
+This context describes a mobile workout logging companion that presents a gym-friendly UI over a Subscriber's coach-managed bodybuilding spreadsheet.
 
 ## Language
 
@@ -9,7 +9,7 @@ The coach-managed Google Sheets file that contains the bodybuilding program and 
 _Avoid_: database, backend database
 
 **PWA**:
-The mobile-first interface Eduardo uses to read from and write to the **Source Spreadsheet**.
+The mobile-first interface a **Subscriber** uses to read from and write to their **Source Spreadsheet**.
 _Avoid_: coaching app, training engine
 
 **Workout Logging Companion**:
@@ -17,15 +17,15 @@ A tool for capturing bodyweight and completed workout set data without making tr
 _Avoid_: coach, program generator, progression engine
 
 **Training Week**:
-The weekly unit of the program, identified by an existing week-start row in the **Source Spreadsheet**, in which Eduardo is expected to complete all four programmed workout sessions.
+The weekly unit of the program, identified by an existing week-start row in the **Source Spreadsheet**, in which the **Subscriber** is expected to complete all programmed workout sessions.
 _Avoid_: cycle, block
 
 **Workout Session**:
-One of the four programmed sessions that belong to a **Training Week**: Upper A, Lower A, Upper B, or Lower B.
+One coach-defined programmed session that belongs to a **Training Week**. Session names and counts can vary between **Source Spreadsheets**.
 _Avoid_: workout, gym visit
 
 **Session Order**:
-The advisory order of **Workout Sessions** within a **Training Week**: Upper A, Lower A, Upper B, Lower B.
+The advisory coach-defined order of **Workout Sessions** within a **Training Week**.
 _Avoid_: required rotation, schedule
 
 **Complete Session**:
@@ -41,19 +41,19 @@ A **Workout Session** with no logged lift data for the selected **Training Week*
 _Avoid_: empty workout
 
 **Complete Training Week**:
-A **Training Week** whose four **Workout Sessions** are all **Complete Sessions**.
+A **Training Week** whose programmed **Workout Sessions** are all **Complete Sessions**.
 _Avoid_: finished week
 
 **Partial Training Week**:
-A **Training Week** with at least one logged **Workout Session** but fewer than four **Complete Sessions**.
+A **Training Week** with at least one logged **Workout Session** but fewer than all **Complete Sessions**.
 _Avoid_: incomplete week
 
 **Not Started Training Week**:
-A **Training Week** whose four **Workout Sessions** are all **Not Started Sessions**.
+A **Training Week** whose programmed **Workout Sessions** are all **Not Started Sessions**.
 _Avoid_: empty week
 
 **Lift Log**:
-Eduardo's recorded weight and set results for a programmed lift in a specific **Training Week**.
+The **Subscriber**'s recorded weight and set results for a programmed lift in a specific **Training Week**.
 _Avoid_: exercise record
 
 **Lift Weight**:
@@ -61,7 +61,7 @@ The single positive decimal working weight used for all sets of a programmed lif
 _Avoid_: set weight, per-set weight
 
 **Set Result**:
-The actual whole-number rep count Eduardo completed for one set of a programmed lift.
+The actual whole-number rep count the **Subscriber** completed for one set of a programmed lift.
 _Avoid_: target reps, score
 
 **Complete Lift Log**:
@@ -89,7 +89,7 @@ Read-only coach-authored information needed to perform a programmed lift, includ
 _Avoid_: help text, app instructions
 
 **Filming Reminder**:
-An advisory camera marker identifying a programmed lift for which Eduardo should film one set for coach feedback. Training Weeks 1, 4, 7, and so on mark lifts one and two; Training Weeks 2, 5, 8, and so on mark lifts three and four; Training Weeks 3, 6, 9, and so on mark lift five and every remaining lift.
+An advisory camera marker identifying a programmed lift for which the **Subscriber** should film one set for coach feedback. Training Weeks 1, 4, 7, and so on mark lifts one and two; Training Weeks 2, 5, 8, and so on mark lifts three and four; Training Weeks 3, 6, 9, and so on mark lift five and every remaining lift.
 _Avoid_: required recording, uploaded video
 
 **Coach Notes**:
@@ -97,7 +97,7 @@ Coach-authored profile, priority, rotation, or coaching context stored in the **
 _Avoid_: app notes, user notes
 
 **Free-Form Notes**:
-Eduardo-authored lift, session, or body tracking comments.
+Subscriber-authored lift, session, or body tracking comments.
 _Avoid_: comments, annotations
 
 **Exercise Substitution**:
@@ -112,13 +112,33 @@ _Avoid_: timer, calculator
 An entry that has been written to and confirmed by the **Source Spreadsheet**.
 _Avoid_: local entry, draft entry
 
-**Eduardo**:
-The single client whose bodybuilding program is managed in the **Source Spreadsheet**.
-_Avoid_: user, account, client list
+**Subscriber**:
+A person who has an individual KeloShell account, subscription lifecycle, and one active **Source Spreadsheet**.
+_Avoid_: user, customer, athlete
 
-**Private Tool Access**:
-Access to the **PWA** and its writes governed by Cloudflare Access and the private **Source Spreadsheet** rather than app-specific accounts.
-_Avoid_: app login, user account
+**Coach Partner**:
+The coach who authors **Program Definitions**, manages **Source Spreadsheets**, and offers KeloShell to their clients without working in the **PWA**.
+_Avoid_: admin, PWA user
+
+**Account Email**:
+The Subscriber's verified sign-in address, which must be granted direct access to their **Source Spreadsheet**.
+_Avoid_: billing email, coach email
+
+**Subscription Entitlement**:
+The Subscriber's current permission to use KeloShell, derived from the trial and paid subscription lifecycle.
+_Avoid_: account status, payment flag
+
+**Read-Only Access**:
+A time-limited post-subscription state in which a Subscriber can view existing data and export **App-Owned Data** but cannot create, edit, or clear entries.
+_Avoid_: active subscription, free tier
+
+**Supported Spreadsheet Format**:
+The structural contract a **Source Spreadsheet** must satisfy before it can be linked, while permitting coach-defined session names, session counts, lifts, and programs.
+_Avoid_: exact template, per-client configuration
+
+**App-Owned Data**:
+Subscriber data used by KeloShell but not authored or reviewed by the **Coach Partner**, including steps and habit entries.
+_Avoid_: coach data, Source Spreadsheet data
 
 **Progression Prompt**:
 An advisory message shown in a current **Training Week** when the nearest earlier **Complete Lift Log** for the same **Workout Session** and **Lift Identity** met its coach-authored progression scheme.
@@ -205,15 +225,15 @@ The app's interpretation that differently formatted or slightly renamed lift nam
 _Avoid_: exercise block, column position
 
 **Daily Bodyweight**:
-Eduardo's bodyweight measurement for a specific calendar date.
+The **Subscriber**'s bodyweight measurement for a specific calendar date.
 _Avoid_: weigh-in
 
 **Body Measurement**:
-Eduardo's positive decimal physique measurement for a specific body part on a specific calendar date, expressed in the **Source Spreadsheet**'s implicit unit.
+The **Subscriber**'s positive decimal physique measurement for a specific body part on a specific calendar date, expressed in the **Source Spreadsheet**'s implicit unit.
 _Avoid_: body stat, measurement stat
 
 **Measurement Check-In**:
-A scheduled set of **Body Measurements** Eduardo records for coach review.
+A scheduled set of **Body Measurements** the **Subscriber** records for coach review.
 _Avoid_: progress update, physique entry
 
 **Measurement Field**:
@@ -225,7 +245,7 @@ A prompt to enter a **Measurement Check-In** when an existing spreadsheet date m
 _Avoid_: generated check-in, obligation, overdue check-in
 
 **Local Calendar Date**:
-The date according to Eduardo's local timezone.
+The date according to the **Subscriber**'s configured timezone.
 _Avoid_: UTC date, server date
 
 **Bodyweight Reminder**:
@@ -242,15 +262,16 @@ _Avoid_: incomplete check-in
 
 ## Relationships
 
-- The **PWA** reads from and writes to exactly one **Source Spreadsheet**
+- Each **Subscriber** represents one person and has exactly one active **Source Spreadsheet**
+- The **PWA** reads from and writes to the authenticated **Subscriber**'s active **Source Spreadsheet**
 - The **Source Spreadsheet** remains authoritative over the training program and logged data
 - The **Workout Logging Companion** captures data but does not prescribe substitutions, progression changes, or readiness decisions
 - Current **Source Spreadsheet** structure wins over stale **PWA** state
-- A **Training Week** contains exactly four **Workout Sessions**
+- A **Training Week** contains one or more coach-defined **Workout Sessions**
 - A **Workout Session** belongs to exactly one **Training Week**
 - A **Complete Session** has entries for every programmed lift; a **Partial Session** has entries for only some programmed lifts
 - A **Not Started Session** has no logged lift data
-- **Training Week** status is derived from the statuses of its four **Workout Sessions**
+- **Training Week** status is derived from the statuses of all its **Workout Sessions**
 - **Training Week** status does not depend on **Daily Bodyweight** or **Measurement Check-Ins**
 - The **Source Spreadsheet** defines which **Training Weeks** exist
 - **Lift Logs** can be entered or edited for any existing **Training Week**
@@ -270,7 +291,7 @@ _Avoid_: incomplete check-in
 - Re-entering **Daily Bodyweight** for the same date replaces the existing value
 - A **Measurement Check-In** contains one or more **Body Measurements**
 - **Measurement Fields** are defined by the **Source Spreadsheet**
-- The **PWA** can remind Eduardo to enter **Daily Bodyweight** and **Measurement Check-Ins**
+- The **PWA** can remind a **Subscriber** to enter **Daily Bodyweight** and **Measurement Check-Ins**
 - A **Measurement Reminder** is based on an existing **Source Spreadsheet** date and is not created by the **PWA**
 - A **Bodyweight Reminder** is based on an existing **Source Spreadsheet** date and is not created by the **PWA**
 - **Bodyweight Reminders** and **Measurement Reminders** use the **Local Calendar Date**
@@ -280,15 +301,19 @@ _Avoid_: incomplete check-in
 - A **Partial Measurement Check-In** has values for only some current **Measurement Fields**
 - Saving a **Measurement Check-In** writes only entered or edited **Body Measurements** and leaves untouched **Measurement Fields** unchanged
 - **Body Measurements** use the same implicit units as the **Source Spreadsheet** and are not converted by the **PWA**
-- For the MVP, the **PWA** requires connectivity and only treats confirmed **Source Spreadsheet** writes as **Synced Entries**
-- The MVP supports exactly one **Eduardo** and one **Source Spreadsheet**
-- The **PWA** is Eduardo-facing; the coach works directly in the **Source Spreadsheet**
-- The MVP has **Private Tool Access** rather than app-specific accounts
+- The **PWA** requires connectivity and only treats confirmed **Source Spreadsheet** writes as **Synced Entries**
+- The paid pilot supports one **Coach Partner** and many **Subscribers**; support for multiple Coach Partners is outside the pilot
+- The **PWA** is Subscriber-facing; the **Coach Partner** works directly in **Source Spreadsheets**
+- A **Source Spreadsheet** must satisfy the **Supported Spreadsheet Format** before a trial can begin
+- The **Account Email** must have a direct Google Drive permission on the active **Source Spreadsheet**
+- **App-Owned Data** is authoritative outside the **Source Spreadsheet**
+- A **Subscription Entitlement** governs PWA capabilities without changing or deleting the **Source Spreadsheet**
+- **Read-Only Access** does not permit writes to the **Source Spreadsheet** or **App-Owned Data**
+- A Subscriber can export **App-Owned Data** during **Read-Only Access**
 - The **PWA** and its same-origin spreadsheet proxy are deployed together on Cloudflare Pages
 - The spreadsheet proxy accesses the **Source Spreadsheet** through a Google service account; Google credentials are never sent to the browser
-- **Free-Form Notes** are out of MVP scope
-- **Exercise Substitutions** are out of MVP scope
-- **Gym Utilities** are out of MVP scope
+- **Free-Form Notes** are outside the paid pilot scope
+- **Exercise Substitutions** are outside the paid pilot scope
 - The **PWA** may show **Progression Prompts** derived from the **Program Definition**
 - **Progression Prompts** are shown only for **Supported Progression Schemes**
 - A **Progression Prompt** does not change the **Program Definition** or future **Lift Logs**
@@ -302,7 +327,7 @@ _Avoid_: incomplete check-in
 - The **PWA** shows no progression-related prompt when progression conditions are not met
 - A **Progression Prompt** may show an approximate five percent next-weight recommendation when its progression condition is met, unless the **Program Definition** provides a more specific increment
 - A **Next-Weight Recommendation** uses the earlier qualifying **Lift Weight** increased by five percent and rounded to the nearest five in the **Source Spreadsheet**'s implicit unit unless that earlier **Program Definition** provides a more specific increment
-- The MVP does not model the **RM Calculator**
+- The paid pilot does not model the **RM Calculator**
 - **Five-Five-Three-AMRAP** can show an eligibility **Progression Prompt** but does not use the generic five percent **Next-Weight Recommendation**
 - **Volume Ramp** and **Intensity Ramp** do not show **Progression Prompts** unless the **Source Spreadsheet** provides enough phase context to evaluate them
 - **Block Volume** does not show **Progression Prompts** unless the **Source Spreadsheet** provides the block volume requirement
@@ -315,8 +340,8 @@ _Avoid_: incomplete check-in
 - **Previous Lift Logs** are scoped to the same **Workout Session**
 - The **PWA** displays existing **Source Spreadsheet** values even when they do not satisfy PWA entry rules
 - The **PWA** enforces valid **Lift Logs** and **Daily Bodyweight** only when writing new values
-- **Session Order** can guide suggestions but does not restrict which **Workout Session** Eduardo logs or edits
-- For the MVP, lift and session completion are evaluated against the current **Program Definition**
+- **Session Order** can guide suggestions but does not restrict which **Workout Session** the **Subscriber** logs or edits
+- For the paid pilot, lift and session completion are evaluated against the current **Program Definition**
 - A **Set Result** records what happened and does not need to satisfy the programmed rep target
 - **Lift Weight** uses the same implicit unit as the **Source Spreadsheet** and is not converted by the **PWA**
 - Saving a **Workout Session** writes only entered or edited **Lift Logs** and leaves untouched programmed lifts unchanged
@@ -332,27 +357,27 @@ _Avoid_: incomplete check-in
 > **Domain expert:** "No — the **Workout Logging Companion** is just a UI over the **Source Spreadsheet**. Coaching decisions stay outside the app."
 
 > **Dev:** "Should the app start from today's next lift?"
-> **Domain expert:** "No — it should show the **Training Week** and the status of all four **Workout Sessions** for that week."
+> **Domain expert:** "No — it should show the **Training Week** and the status of all programmed **Workout Sessions** for that week."
 
-> **Dev:** "If Eduardo opens the app on Monday, should the app create a new **Training Week** automatically?"
+> **Dev:** "If the **Subscriber** opens the app on Monday, should the app create a new **Training Week** automatically?"
 > **Domain expert:** "No — a **Training Week** exists when it has a week-start row in the **Source Spreadsheet**."
 
-> **Dev:** "If a lift asks for three sets and Eduardo enters all three set results but no weight, should the app mark the lift complete?"
+> **Dev:** "If a lift asks for three sets and the **Subscriber** enters all three set results but no weight, should the app mark the lift complete?"
 > **Domain expert:** "No — a **Complete Lift Log** needs both a weight and the programmed set results."
 
-> **Dev:** "If Eduardo changes weight between sets, should the app store a different weight per set?"
+> **Dev:** "If the **Subscriber** changes weight between sets, should the app store a different weight per set?"
 > **Domain expert:** "No — the coach's sheet expects one **Lift Weight** for the programmed lift."
 
 > **Dev:** "If last week's logged weight was wrong, should the **PWA** keep the old value as history?"
 > **Domain expert:** "No — an **Edit** replaces the current value in the **Source Spreadsheet**."
 
-> **Dev:** "Should Eduardo be able to change a lift's set count from the app?"
+> **Dev:** "Should the **Subscriber** be able to change a lift's set count from the app?"
 > **Domain expert:** "No — that is part of the **Program Definition**, which is coach-owned."
 
-> **Dev:** "Should Eduardo be able to edit coaching notes from the app?"
+> **Dev:** "Should the **Subscriber** be able to edit coaching notes from the app?"
 > **Domain expert:** "No — **Coach Notes** are read-only context."
 
-> **Dev:** "If Eduardo logs bodyweight twice on the same date, should the app create two entries?"
+> **Dev:** "If the **Subscriber** logs bodyweight twice on the same date, should the app create two entries?"
 > **Domain expert:** "No — the second **Daily Bodyweight** replaces the first for that date."
 
 > **Dev:** "Should the app only capture bodyweight?"
@@ -368,28 +393,28 @@ _Avoid_: incomplete check-in
 > **Domain expert:** "No — it should show a **Bodyweight Reminder** when today's existing spreadsheet date has no value."
 
 > **Dev:** "Should reminders use UTC?"
-> **Domain expert:** "No — reminders use Eduardo's **Local Calendar Date**."
+> **Domain expert:** "No — reminders use the **Subscriber**'s **Local Calendar Date**."
 
-> **Dev:** "If Eduardo forgot yesterday's bodyweight, can he enter it today?"
+> **Dev:** "If the **Subscriber** forgot yesterday's bodyweight, can they enter it today?"
 > **Domain expert:** "Yes, if yesterday already exists as a date in the **Source Spreadsheet**."
 
-> **Dev:** "If Eduardo enters only waist and chest on a measurement day, should the app reject the check-in?"
+> **Dev:** "If the **Subscriber** enters only waist and chest on a measurement day, should the app reject the check-in?"
 > **Domain expert:** "No — that is a **Partial Measurement Check-In** and can be saved."
 
 > **Dev:** "Should the app convert inches to centimeters?"
 > **Domain expert:** "No — **Body Measurements** use the **Source Spreadsheet**'s implicit units."
 
-> **Dev:** "If Eduardo logs a workout without connectivity, is it considered logged?"
-> **Domain expert:** "No — for the MVP, only a **Synced Entry** in the **Source Spreadsheet** counts."
+> **Dev:** "If the **Subscriber** logs a workout without connectivity, is it considered logged?"
+> **Domain expert:** "No — for the paid pilot, only a **Synced Entry** in the **Source Spreadsheet** counts."
 
-> **Dev:** "Should the app let a coach switch between multiple clients?"
-> **Domain expert:** "No — the MVP supports only **Eduardo** and his **Source Spreadsheet**."
+> **Dev:** "Should the app let the **Coach Partner** switch between multiple clients?"
+> **Domain expert:** "No — the **Coach Partner** works in each **Source Spreadsheet**, not in the **PWA**."
 
 > **Dev:** "Should the coach review logs inside the app?"
 > **Domain expert:** "No — the coach reviews updates in the **Source Spreadsheet**."
 
-> **Dev:** "Should Eduardo create an app account?"
-> **Domain expert:** "No — the MVP uses **Private Tool Access**, not app accounts."
+> **Dev:** "Can one **Subscriber** link multiple active Source Spreadsheets?"
+> **Domain expert:** "No — one Subscriber represents one person with one active **Source Spreadsheet**."
 
 > **Dev:** "If logged results satisfy the coach's progression scheme, should the app increase next week's weight?"
 > **Domain expert:** "No — the app may show a **Progression Prompt**, but it must not automatically change future values."
@@ -413,7 +438,7 @@ _Avoid_: incomplete check-in
 > **Domain expert:** "No — a **Next-Weight Recommendation** should be rounded to the nearest five."
 
 > **Dev:** "Should 5/5/3/AMRAP use the generic five percent next-weight recommendation?"
-> **Domain expert:** "No — the MVP does not model the **RM Calculator**, so 5/5/3/AMRAP only shows eligibility."
+> **Domain expert:** "No — the paid pilot does not model the **RM Calculator**, so 5/5/3/AMRAP only shows eligibility."
 
 > **Dev:** "If progression conditions are not met, should the app show a repeat-weight or failure message?"
 > **Domain expert:** "No — progression prompts appear only when the lift appears eligible to progress."
@@ -433,17 +458,17 @@ _Avoid_: incomplete check-in
 > **Dev:** "If the **Source Spreadsheet** has reps but no weight for a lift, should the **PWA** refuse to show it?"
 > **Domain expert:** "No — the **PWA** should show existing values faithfully, but require valid data when saving."
 
-> **Dev:** "If Eduardo completes Upper B before Lower A, should the app block it?"
+> **Dev:** "If the **Subscriber** completes one session before an earlier session in the **Session Order**, should the app block it?"
 > **Domain expert:** "No — **Session Order** is advisory, not enforced."
 
 > **Dev:** "If the coach adds a lift after a session was previously complete, does the app preserve the old complete status?"
-> **Domain expert:** "No — for the MVP, completion is interpreted against the current **Program Definition**."
+> **Domain expert:** "No — for the paid pilot, completion is interpreted against the current **Program Definition**."
 
-> **Dev:** "If the target is 7+ reps and Eduardo gets 6, should the app reject the entry?"
+> **Dev:** "If the target is 7+ reps and the **Subscriber** gets 6, should the app reject the entry?"
 > **Domain expert:** "No — a **Set Result** records the actual rep count."
 
 > **Dev:** "Does a rep target define the same thing as a completed set result?"
-> **Domain expert:** "No — a **Rep Target** is coach-authored guidance; a **Set Result** is what Eduardo actually completed."
+> **Domain expert:** "No — a **Rep Target** is coach-authored guidance; a **Set Result** is what the **Subscriber** actually completed."
 
 > **Dev:** "Does `7+` define a range maximum of seven?"
 > **Domain expert:** "No — `7+` defines a **Rep Floor**, not a **Rep Range Maximum**."
@@ -451,10 +476,10 @@ _Avoid_: incomplete check-in
 > **Dev:** "Should the app convert kilograms to pounds?"
 > **Domain expert:** "No — **Lift Weight** is entered in the same implicit unit as the **Source Spreadsheet**."
 
-> **Dev:** "If Eduardo logs two lifts from Lower A and skips the rest, should the app block saving?"
+> **Dev:** "If the **Subscriber** logs two lifts from a session and skips the rest, should the app block saving?"
 > **Domain expert:** "No — saving writes the entered **Lift Logs** and leaves the other lifts unchanged."
 
-> **Dev:** "If a lift was logged on the wrong week, should Eduardo be able to blank it from the app?"
+> **Dev:** "If a lift was logged on the wrong week, should the **Subscriber** be able to blank it from the app?"
 > **Domain expert:** "Yes — that is a deliberate **Clear**, not an untouched lift."
 
 ## Flagged ambiguities

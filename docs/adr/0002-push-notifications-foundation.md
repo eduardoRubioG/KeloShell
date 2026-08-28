@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Partially superseded by ADR-0003. KeloShell retains scheduled reminder evaluation, but OneSignal replaces the custom Web Push delivery and subscription-storage implementation for the paid pilot.
 
 ## Context
 
