@@ -238,6 +238,10 @@ describe('POST /api/push/dispatch-reminders', () => {
       'Bodyweight Reminder',
       'Measurement Reminder',
     ]);
+    expect(notifications[0].url).toBe('/body?date=2026-07-01');
+    expect(notifications[1].url).toBe(
+      '/body?segment=check-ins&checkInDate=2026-07-01'
+    );
   });
 
   it('does not redeliver a reminder already sent for the Local Calendar Date', async () => {

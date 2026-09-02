@@ -1,11 +1,8 @@
 import {
   ArrowLeft,
-  ArrowRight,
   Check,
   Minus,
   Plus,
-  TrendDown,
-  TrendUp,
   Warning,
 } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
@@ -13,26 +10,47 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useBlocker, useNavigate, useSearch } from '@tanstack/react-router';
 
 import type { BodyweightResponse, DailyBodyweightEntry } from '../../contracts/body';
+import type { MeasurementCheckInEntry, MeasurementField } from '../../contracts/measurements';
 import { formatNumber, parsePositiveDecimal } from '../../shared/parse-number';
 import { fetchBodyweight, saveDailyBodyweight } from './api/bodyweight';
+import { fetchMeasurements } from './api/measurements';
+import { CheckInStatusBadge } from './CheckInStatusBadge';
+import { MeasurementCheckInEditor } from './MeasurementCheckInEditor';
 import {
   bodyweightTrend,
   previousRecordedEntry,
   sortBodyweightEntries,
-  sparklineSegments,
 } from './bodyweight-view';
 import { todayLocalIsoDate } from './local-date';
+import {
+  checkInStatus,
+  dueTodayCheckIn,
+  filledFieldCount,
+  pastCheckIns,
+} from './measurement-view';
+import {
+  BodyweightHubSections,
+} from './bodyweight-hub-sections';
+import { formatDate, formatShortDate } from './format-dates';
 
-const RECENT_COUNT = 4;
-const SPARKLINE_WIDTH = 304;
-const SPARKLINE_HEIGHT = 84;
+type BodySegment = 'weight' | 'check-ins';
 
 export function BodyPage() {
-  const { date: selectedDate } = useSearch({ from: '/body' });
+  const {
+    date: selectedDate,
+    checkInDate: selectedCheckInDate,
+    segment: selectedSegment,
+  } = useSearch({ from: '/body' });
   const navigate = useNavigate({ from: '/body' });
+  const segment: BodySegment = selectedSegment ?? 'weight';
   const query = useQuery({
     queryKey: ['bodyweight'],
     queryFn: fetchBodyweight,
+  });
+  const measurementsQuery = useQuery({
+    queryKey: ['measurements'],
+    queryFn: fetchMeasurements,
+    enabled: !selectedDate,
   });
 
   if (query.isPending) {
@@ -81,7 +99,7 @@ export function BodyPage() {
             <button
               type="button"
               className="rounded-control bg-action px-4 py-2.5 text-sm font-extrabold text-action-ink"
-              onClick={() => void navigate({ search: { date: undefined }, replace: true })}
+              onClick={() => void navigate({ search: (previous) => ({ ...previous, date: undefined }), replace: true })}
             >
               Back to Body
             </button>
@@ -93,22 +111,137 @@ export function BodyPage() {
     return <BodyweightEditor key={activeEntry.date} entry={activeEntry} entries={entries} />;
   }
 
-  return <BodyHub entries={entries} />;
-}
+  if (selectedCheckInDate) {
+    if (measurementsQuery.isPending) {
+      return <BodyPageLoading />;
+    }
 
-function BodyHub({ entries }: { entries: DailyBodyweightEntry[] }) {
-  const navigate = useNavigate({ from: '/body' });
-  const today = todayLocalIsoDate();
-  const todayEntry = entries.find((entry) => entry.date === today);
-  const trend = bodyweightTrend(entries, today);
-  const recentEntries = entries.filter((entry) => entry.date <= today).slice(-RECENT_COUNT).reverse();
+    if (measurementsQuery.isError) {
+      return (
+        <BodyPageMessage
+          eyebrow="Measurement Check-Ins"
+          title="Check-Ins unavailable"
+          detail={measurementsQuery.error.message}
+          action={
+            <button
+              type="button"
+              className="rounded-control bg-action px-4 py-2.5 text-sm font-extrabold text-action-ink"
+              onClick={() => void measurementsQuery.refetch()}
+            >
+              Try again
+            </button>
+          }
+        />
+      );
+    }
 
-  const openEntry = (date: string) => {
-    void navigate({ search: { date } });
-  };
+    const data = measurementsQuery.data;
+    const checkIns = data?.checkIns ?? [];
+    const activeCheckIn = checkIns.find((checkIn) => checkIn.date === selectedCheckInDate);
+    if (!data || !activeCheckIn) {
+      return (
+        <BodyPageMessage
+          eyebrow="Measurement Check-In"
+          title="Date unavailable"
+          detail="That date is not available in the Source Spreadsheet."
+          action={
+            <button
+              type="button"
+              className="rounded-control bg-action px-4 py-2.5 text-sm font-extrabold text-action-ink"
+              onClick={() =>
+                void navigate({
+                  search: (previous) => ({ ...previous, checkInDate: undefined }),
+                  replace: true,
+                })
+              }
+            >
+              Back to Body
+            </button>
+          }
+        />
+      );
+    }
+
+    const sortedCheckIns = [...checkIns].sort((left, right) =>
+      right.date.localeCompare(left.date)
+    );
+
+    return (
+      <MeasurementCheckInEditor
+        key={activeCheckIn.date}
+        checkIn={activeCheckIn}
+        checkIns={sortedCheckIns}
+        fields={data.fields}
+        unitLabel={data.unitLabel ?? ''}
+        today={todayLocalIsoDate()}
+        onBack={() =>
+          void navigate({
+            search: (previous) => ({ ...previous, checkInDate: undefined }),
+          })
+        }
+        onSelectDate={(date) =>
+          void navigate({
+            search: (previous) => ({ ...previous, checkInDate: date }),
+          })
+        }
+      />
+    );
+  }
 
   return (
-    <section className="px-1" aria-labelledby="body-heading">
+    <BodySegmentedHub
+      entries={entries}
+      segment={segment}
+      measurementsQuery={measurementsQuery}
+      onOpenCheckIn={(date) => {
+        void navigate({
+          search: (previous) => ({
+            ...previous,
+            segment: 'check-ins',
+            checkInDate: date,
+          }),
+        });
+      }}
+      onSegmentChange={(nextSegment) => {
+        void navigate({
+          search: (previous) => ({ ...previous, segment: nextSegment === 'weight' ? undefined : nextSegment }),
+        });
+      }}
+    />
+  );
+}
+
+interface MeasurementsQueryState {
+  isPending: boolean;
+  isError: boolean;
+  error: Error | null;
+  data?: {
+    unitLabel: string | null;
+    fields: MeasurementField[];
+    checkIns: MeasurementCheckInEntry[];
+  };
+  refetch: () => Promise<unknown>;
+}
+
+interface BodySegmentedHubProps {
+  entries: DailyBodyweightEntry[];
+  segment: BodySegment;
+  measurementsQuery: MeasurementsQueryState;
+  onOpenCheckIn: (date: string) => void;
+  onSegmentChange: (segment: BodySegment) => void;
+}
+
+function BodySegmentedHub({
+  entries,
+  segment,
+  measurementsQuery,
+  onOpenCheckIn,
+  onSegmentChange,
+}: BodySegmentedHubProps) {
+  const today = todayLocalIsoDate();
+
+  return (
+    <section className="px-1 pb-24" aria-labelledby="body-heading">
       <p className="font-mono text-[0.6875rem] font-semibold uppercase tracking-eyebrow text-text-muted">
         Body Tracking
       </p>
@@ -116,122 +249,190 @@ function BodyHub({ entries }: { entries: DailyBodyweightEntry[] }) {
         Body
       </h1>
 
-      {todayEntry && !todayEntry.hasValue ? (
-        <button
-          type="button"
-          className="mt-4 flex w-full items-center gap-3 rounded-card border border-action/35 bg-action-soft px-4 py-3.5 text-left transition-colors hover:bg-action-soft-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
-          onClick={() => openEntry(todayEntry.date)}
-        >
-          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-action-muted text-action">
-            <Warning aria-hidden="true" size={18} weight="fill" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-extrabold">Log today&apos;s bodyweight</span>
-            <span className="mt-0.5 block font-mono text-[0.6875rem] text-text-muted">
-              {formatShortDate(todayEntry.date)} · no value yet
+      <div
+        className="mt-4 grid grid-cols-2 gap-1 rounded-control border border-border-subtle bg-surface p-1"
+        role="tablist"
+        aria-label="Body tracking mode"
+      >
+        {(
+          [
+            ['weight', 'Weight'],
+            ['check-ins', 'Check-Ins'],
+          ] as const
+        ).map(([key, label]) => {
+          const isActive = segment === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              className={`rounded-control px-3 py-2.5 text-sm font-extrabold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action ${
+                isActive
+                  ? 'bg-action text-action-ink'
+                  : 'text-text-muted hover:bg-surface-control hover:text-text-secondary'
+              }`}
+              onClick={() => onSegmentChange(key)}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {segment === 'weight' ? (
+        <div role="tabpanel" aria-label="Daily Bodyweight">
+          <BodyweightHubSections entries={entries} />
+        </div>
+      ) : (
+        <MeasurementCheckInsPanel
+          measurementsQuery={measurementsQuery}
+          today={today}
+          onOpenCheckIn={onOpenCheckIn}
+        />
+      )}
+    </section>
+  );
+}
+
+function MeasurementCheckInsPanel({
+  measurementsQuery,
+  today,
+  onOpenCheckIn,
+}: {
+  measurementsQuery: MeasurementsQueryState;
+  today: string;
+  onOpenCheckIn: (date: string) => void;
+}) {
+  if (measurementsQuery.isPending) {
+    return (
+      <div role="tabpanel" aria-label="Measurement Check-Ins" className="mt-4 space-y-3" aria-busy="true">
+        <div className="h-20 animate-pulse rounded-card bg-surface-raised" />
+        <div className="h-24 animate-pulse rounded-card bg-surface-raised" />
+      </div>
+    );
+  }
+
+  if (measurementsQuery.isError) {
+    return (
+      <div role="tabpanel" aria-label="Measurement Check-Ins" className="mt-4">
+        <BodyPageMessage
+          eyebrow="Measurement Check-Ins"
+          title="Check-Ins unavailable"
+          detail={measurementsQuery.error?.message ?? 'Measurement data could not be loaded.'}
+          action={
+            <button
+              type="button"
+              className="rounded-control bg-action px-4 py-2.5 text-sm font-extrabold text-action-ink transition-colors hover:bg-action/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
+              onClick={() => void measurementsQuery.refetch()}
+            >
+              Try again
+            </button>
+          }
+        />
+      </div>
+    );
+  }
+
+  const data = measurementsQuery.data;
+  if (!data || data.checkIns.length === 0) {
+    return (
+      <div role="tabpanel" aria-label="Measurement Check-Ins" className="mt-4">
+        <BodyPageMessage
+          eyebrow="Measurement Check-Ins"
+          title="No check-ins found"
+          detail="The Source Spreadsheet does not contain any scheduled Measurement Check-In dates yet."
+        />
+      </div>
+    );
+  }
+
+  const fields = data.fields;
+  const checkIns = [...data.checkIns].sort((left, right) => right.date.localeCompare(left.date));
+  const dueToday = dueTodayCheckIn(checkIns, today);
+  const previous = pastCheckIns(checkIns, today);
+  const unitLabel = data.unitLabel ?? '';
+
+  return (
+    <div role="tabpanel" aria-label="Measurement Check-Ins" className="mt-4">
+      {dueToday ? (
+        <section aria-labelledby="due-check-in-heading">
+          <h2
+            id="due-check-in-heading"
+            className="font-mono text-[0.6875rem] font-semibold uppercase tracking-eyebrow text-text-muted"
+          >
+            Next Due
+          </h2>
+          <button
+            type="button"
+            className="mt-2 flex w-full items-center gap-3 rounded-card border border-partial/35 bg-partial-soft px-4 py-4 text-left transition-colors hover:bg-partial-soft-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
+            onClick={() => onOpenCheckIn(dueToday.date)}
+          >
+            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-partial-soft text-partial">
+              <Warning aria-hidden="true" size={20} weight="fill" />
             </span>
-          </span>
-          <ArrowRight aria-hidden="true" size={17} weight="bold" className="shrink-0 text-action" />
-        </button>
+            <span className="min-w-0 flex-1">
+              <span className="block text-base font-extrabold">
+                {checkInStatus(dueToday) === 'empty'
+                  ? 'Start Measurement Check-In'
+                  : 'Continue Measurement Check-In'}
+              </span>
+              <span className="mt-1 block font-mono text-[0.6875rem] text-text-muted">
+                {formatShortDate(dueToday.date)}
+                {unitLabel ? ` · ${unitLabel}` : ''} ·{' '}
+                {filledFieldCount(dueToday, fields)}/{fields.length} fields
+              </span>
+            </span>
+            <CheckInStatusBadge status={checkInStatus(dueToday)} />
+          </button>
+        </section>
       ) : null}
 
-      <TrendCard trend={trend} />
-
-      <section className="mt-5" aria-labelledby="recent-bodyweight-heading">
-        <div className="flex items-baseline justify-between px-1">
-          <h2 id="recent-bodyweight-heading" className="font-mono text-[0.6875rem] font-semibold uppercase tracking-eyebrow text-text-muted">
-            Recent Bodyweight
-          </h2>
-          <span className="font-mono text-[0.625rem] font-semibold uppercase tracking-label text-text-faint">lbs</span>
-        </div>
-        <ul className="mt-2 space-y-2">
-          {recentEntries.map((entry) => (
-            <li key={entry.date}>
+      <section className="mt-5" aria-labelledby="past-check-ins-heading">
+        <h2
+          id="past-check-ins-heading"
+          className="font-mono text-[0.6875rem] font-semibold uppercase tracking-eyebrow text-text-muted"
+        >
+          Past Check-Ins
+        </h2>
+        <ul className="mt-2 space-y-3">
+          {previous.map((checkIn) => (
+            <li key={checkIn.date}>
               <button
                 type="button"
-                className="flex w-full items-center gap-3 rounded-card border border-border-subtle bg-surface-raised px-4 py-3 text-left transition-colors hover:border-border-strong hover:bg-surface-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
-                onClick={() => openEntry(entry.date)}
+                className="w-full rounded-card border border-border-subtle bg-surface-raised px-4 py-3 text-left transition-colors hover:bg-surface-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
+                onClick={() => onOpenCheckIn(checkIn.date)}
               >
-                <span className="min-w-0 flex-1 text-sm font-bold text-text-secondary">
-                  {formatShortDate(entry.date)}
-                  {entry.date === today ? (
-                    <span className="ml-2 rounded-full bg-action-muted px-2 py-0.5 font-mono text-[0.5625rem] font-semibold uppercase text-action">Today</span>
-                  ) : null}
-                </span>
-                <span className={`font-mono text-sm font-bold ${entry.hasValue ? 'text-text-primary' : 'text-text-faint'}`}>
-                  {entry.weight ?? '—'}
-                </span>
-                <ArrowRight aria-hidden="true" size={15} className="text-text-faint" />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-bold text-text-secondary">
+                    {formatDate(checkIn.date)}
+                  </span>
+                  <CheckInStatusBadge status={checkIn.status} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {fields.map((field) => {
+                    const value = checkIn.values[field.id];
+                    const filled = value !== null;
+                    return (
+                      <span
+                        key={field.id}
+                        className={`rounded-full px-2 py-0.5 font-mono text-[0.5625rem] font-semibold uppercase ${
+                          filled
+                            ? 'bg-complete-soft text-complete'
+                            : 'bg-surface-control text-text-faint'
+                        }`}
+                      >
+                        {field.label}
+                      </span>
+                    );
+                  })}
+                </div>
               </button>
             </li>
           ))}
         </ul>
       </section>
-    </section>
-  );
-}
-
-function TrendCard({ trend }: { trend: ReturnType<typeof bodyweightTrend> }) {
-  const segments = sparklineSegments(trend.values, SPARKLINE_WIDTH, SPARKLINE_HEIGHT);
-  const change = trend.change;
-  const hasChange = change !== null && Math.abs(change) >= 0.05;
-  const ChangeIcon = change !== null && change > 0 ? TrendUp : TrendDown;
-
-  return (
-    <section className="mt-4 overflow-hidden rounded-card border border-border-subtle bg-surface-raised" aria-labelledby="bodyweight-trend-heading">
-      <div className="flex items-start justify-between gap-4 px-4 pt-4">
-        <div>
-          <h2 id="bodyweight-trend-heading" className="font-mono text-[0.6875rem] font-semibold uppercase tracking-eyebrow text-text-muted">
-            7-Day Trend
-          </h2>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-[2rem] font-black leading-none tracking-display">
-              {trend.latest === null ? '—' : formatWeight(trend.latest)}
-            </span>
-            <span className="font-mono text-[0.625rem] font-semibold uppercase text-text-faint">lbs</span>
-          </div>
-        </div>
-        {hasChange ? (
-          <span className={`mt-6 flex items-center gap-1 font-mono text-xs font-bold ${change < 0 ? 'text-complete' : 'text-partial'}`}>
-            <ChangeIcon aria-hidden="true" size={15} weight="bold" />
-            {formatWeight(Math.abs(change))} lbs
-          </span>
-        ) : (
-          <span className="mt-6 font-mono text-xs font-semibold text-text-faint">
-            {change === null ? 'Not enough data' : 'No change'}
-          </span>
-        )}
-      </div>
-
-      <div className="px-3 pb-3 pt-2" aria-hidden="true">
-        <svg className="h-[5.25rem] w-full overflow-visible" viewBox={`0 0 ${SPARKLINE_WIDTH} ${SPARKLINE_HEIGHT}`} preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="bodyweight-trend-fill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="var(--color-action)" stopOpacity="0.2" />
-              <stop offset="100%" stopColor="var(--color-action)" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <line x1="6" x2={SPARKLINE_WIDTH - 6} y1={SPARKLINE_HEIGHT - 6} y2={SPARKLINE_HEIGHT - 6} stroke="var(--color-border-subtle)" />
-          {segments.map((segment, index) => {
-            const points = segment.map((point) => `${point.x},${point.y}`).join(' ');
-            if (segment.length === 1) {
-              return <circle key={index} cx={segment[0].x} cy={segment[0].y} r="3.5" fill="var(--color-action)" />;
-            }
-            const areaPoints = `${segment[0].x},${SPARKLINE_HEIGHT - 6} ${points} ${segment.at(-1)?.x},${SPARKLINE_HEIGHT - 6}`;
-            return (
-              <g key={index}>
-                <polygon points={areaPoints} fill="url(#bodyweight-trend-fill)" />
-                <polyline points={points} fill="none" stroke="var(--color-action)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              </g>
-            );
-          })}
-        </svg>
-        <div className="mt-1 flex justify-between px-1 font-mono text-[0.625rem] text-text-faint">
-          <span>{trend.entries[0] ? formatShortDate(trend.entries[0].date) : '—'}</span>
-          <span>{trend.entries.at(-1) ? formatShortDate(trend.entries.at(-1)!.date) : '—'}</span>
-        </div>
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -273,7 +474,7 @@ function BodyweightEditor({ entry, entries }: BodyweightEditorProps) {
 
   const selectDate = (date: string) => {
     mutation.reset();
-    void navigate({ search: { date } });
+    void navigate({ search: (previous) => ({ ...previous, date }) });
   };
 
   const adjustWeight = (amount: number) => {
@@ -311,7 +512,7 @@ function BodyweightEditor({ entry, entries }: BodyweightEditorProps) {
           type="button"
           aria-label="Back to Body"
           className="grid size-9 shrink-0 place-items-center rounded-control border border-border-subtle bg-surface text-text-secondary transition-colors hover:bg-surface-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action"
-          onClick={() => void navigate({ search: { date: undefined } })}
+          onClick={() => void navigate({ search: (previous) => ({ ...previous, date: undefined }) })}
         >
           <ArrowLeft aria-hidden="true" size={18} weight="bold" />
         </button>
@@ -436,14 +637,6 @@ function BodyweightEditor({ entry, entries }: BodyweightEditorProps) {
       </footer>
     </section>
   );
-}
-
-function formatDate(isoDate: string): string {
-  return localDate(isoDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-function formatShortDate(isoDate: string): string {
-  return localDate(isoDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function formatMonth(isoDate: string): string {

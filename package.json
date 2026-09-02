@@ -7,6 +7,8 @@
     "dev-server": "vite --open",
     "dev": "npm run build && wrangler pages dev dist",
     "dev:ui": "vite",
+    "dev:api": "wrangler pages dev dist --port 8788",
+    "dev:stack": "npm run build && npx concurrently -k -n api,ui -c blue,green \"npm run dev:api\" \"vite --strictPort\"",
     "dev:host": "vite --host",
     "dev-task": "npm run build && wrangler pages dev dist --port 5173",
     "deploy": "npm run build && wrangler pages deploy dist",

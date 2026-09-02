@@ -150,7 +150,7 @@ export function reminderNotification(
   return {
     title: 'Measurement Reminder',
     body: "Today's Measurement Check-In is ready.",
-    url: '/body',
+    url: `/body?segment=check-ins&checkInDate=${localDate}`,
     tag: `measurement-reminder-${localDate}`,
     vibrate: [100, 50, 100],
     requireInteraction: true,

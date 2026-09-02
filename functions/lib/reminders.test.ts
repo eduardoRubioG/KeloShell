@@ -85,9 +85,10 @@ describe('reminderNotification', () => {
     });
   });
 
-  it('uses a date-specific tag for Measurement Reminder', () => {
+  it('deep-links Measurement Reminder to today’s check-in editor', () => {
     expect(reminderNotification('measurement', '2026-07-01')).toMatchObject({
       title: 'Measurement Reminder',
+      url: '/body?segment=check-ins&checkInDate=2026-07-01',
       tag: 'measurement-reminder-2026-07-01',
     });
   });

@@ -6,12 +6,17 @@ import { PrimaryNavigation } from './PrimaryNavigation';
 export function AppShell() {
   const isFocusedFlow = useRouterState({
     select: (state) => {
-      const search = state.location.search as { date?: unknown; lift?: unknown };
+      const search = state.location.search as {
+        date?: unknown;
+        checkInDate?: unknown;
+        lift?: unknown;
+      };
       return (
         typeof search.lift === 'string' ||
         ((state.location.pathname === '/body' ||
           state.location.pathname === '/steps') &&
-          typeof search.date === 'string')
+          (typeof search.date === 'string' ||
+            typeof search.checkInDate === 'string'))
       );
     },
   });
