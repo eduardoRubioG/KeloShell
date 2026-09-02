@@ -64,7 +64,11 @@ function StreaksContent({
           onClick={() =>
             void navigate({
               to: '/body',
-              search: { date: data.bodyweightPrompt!.date },
+              search: {
+                date: data.bodyweightPrompt!.date,
+                checkInDate: undefined,
+                segment: undefined,
+              },
             })
           }
         >

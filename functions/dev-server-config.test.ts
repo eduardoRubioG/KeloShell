@@ -14,6 +14,8 @@ describe('development server configuration', () => {
     expect(manifest.scripts?.['dev-task']).toContain('wrangler pages dev');
     expect(manifest.scripts?.['start-remote']).toContain('wrangler pages dev');
     expect(manifest.scripts?.['dev:ui']).toBe('vite');
+    expect(manifest.scripts?.['dev:api']).toContain('wrangler pages dev');
+    expect(manifest.scripts?.['dev:stack']).toContain('concurrently');
     expect(manifest.scripts?.['dev:host']).toBe('vite --host');
   });
 });
