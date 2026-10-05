@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted; amended 2026-10-05 (see [Amendment: validation-only Coach role](#amendment-validation-only-coach-role))
 
 ## Context
 
@@ -27,3 +27,23 @@ Use OneSignal as the push delivery provider while KeloShell retains responsibili
 - A shared service account is adequate for the pilot but creates a cross-client security and quota blast radius that must be revisited before multi-coach expansion.
 - Direct email sharing is part of the Supported Spreadsheet Format's onboarding contract; link, group, and visitor-only access are unsupported.
 - OneSignal does not remove platform requirements for PWA push, including iOS home-screen installation and user-initiated permission prompts.
+
+## Amendment: validation-only Coach role
+
+Accepted 2026-10-05 while resolving the staged-rollout ticket on the Supported Spreadsheet Format (#7).
+
+### Context
+
+The Coach Partner edits Source Spreadsheets continuously. If format problems are found only when a Subscriber hits them, it takes about a day before the coach even hears about the problem. A link-pasting validator would add a step the coach has to remember for every client.
+
+### Decision
+
+This narrows the "no coach account or portal" decision above. The Coach Partner gets a Supabase account with a `coach` role whose only capability is reading **Sheet Health**: the validation and link status of each enrolled Source Spreadsheet (Subscriber name, sheet, and structured problems). The PWA shows this in a Coach tab. The coach is also emailed when a sheet starts failing validation or becomes unlinked, and again when it recovers.
+
+A scheduled sweep checks each enrolled sheet's Drive `modifiedTime` about every five minutes and re-runs the same validator and Account Email permission check used at enrolment and at runtime. The coach role cannot read Lift Logs, App-Owned Data, Subscription Entitlements, or any other Subscriber data. The coach continues to author and review programs only in Google Sheets.
+
+### Consequences
+
+- The coach role is an RLS exception that the cross-Subscriber isolation acceptance criteria must cover explicitly.
+- Multi-coach support, coach-specific runtime configuration, and a coach portal for reviewing client logs remain outside the pilot.
+- The coach tab and alerts are required before the five-client cohort; they are optional during the private alpha.
