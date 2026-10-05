@@ -117,7 +117,7 @@ A person who has an individual KeloShell account, subscription lifecycle, and on
 _Avoid_: user, customer, athlete
 
 **Coach Partner**:
-The coach who authors **Program Definitions**, manages **Source Spreadsheets**, and offers KeloShell to their clients without working in the **PWA**.
+The coach who authors **Program Definitions**, manages **Source Spreadsheets**, and offers KeloShell to their clients. The Coach Partner works in **Source Spreadsheets**, and uses the **PWA** only to review **Sheet Health**.
 _Avoid_: admin, PWA user
 
 **Account Email**:
@@ -135,6 +135,14 @@ _Avoid_: active subscription, free tier
 **Supported Spreadsheet Format**:
 The structural contract a **Source Spreadsheet** must satisfy before it can be linked, while permitting coach-defined session names, session counts, lifts, and programs.
 _Avoid_: exact template, per-client configuration
+
+**Sheet Health**:
+The current validation and link status of an enrolled **Source Spreadsheet**: whether it satisfies the **Supported Spreadsheet Format** and whether the **Account Email** still has direct access.
+_Avoid_: sheet errors, coach dashboard
+
+**Unlinked Subscriber**:
+A **Subscriber** whose **Account Email** has been confirmed to no longer have a direct Google Drive permission on their **Source Spreadsheet**.
+_Avoid_: deactivated, cancelled
 
 **App-Owned Data**:
 Subscriber data used by KeloShell but not authored or reviewed by the **Coach Partner**, including steps and habit entries.
@@ -303,9 +311,11 @@ _Avoid_: incomplete check-in
 - **Body Measurements** use the same implicit units as the **Source Spreadsheet** and are not converted by the **PWA**
 - The **PWA** requires connectivity and only treats confirmed **Source Spreadsheet** writes as **Synced Entries**
 - The paid pilot supports one **Coach Partner** and many **Subscribers**; support for multiple Coach Partners is outside the pilot
-- The **PWA** is Subscriber-facing; the **Coach Partner** works directly in **Source Spreadsheets**
+- The **PWA** is Subscriber-facing; the **Coach Partner** works directly in **Source Spreadsheets** and can only view **Sheet Health** in the **PWA**
 - A **Source Spreadsheet** must satisfy the **Supported Spreadsheet Format** before a trial can begin
 - The **Account Email** must have a direct Google Drive permission on the active **Source Spreadsheet**
+- Any direct Drive role counts as a link; the permission confirms, but never chooses, the **Subscriber**'s **Source Spreadsheet**
+- An **Unlinked Subscriber** cannot read or write their **Source Spreadsheet** through the **PWA** until the permission is restored
 - **App-Owned Data** is authoritative outside the **Source Spreadsheet**
 - A **Subscription Entitlement** governs PWA capabilities without changing or deleting the **Source Spreadsheet**
 - **Read-Only Access** does not permit writes to the **Source Spreadsheet** or **App-Owned Data**
@@ -412,6 +422,9 @@ _Avoid_: incomplete check-in
 
 > **Dev:** "Should the coach review logs inside the app?"
 > **Domain expert:** "No — the coach reviews updates in the **Source Spreadsheet**."
+
+> **Dev:** "Then why does the **Coach Partner** have a tab in the app?"
+> **Domain expert:** "Only to see **Sheet Health**, so a broken sheet is fixed before a **Subscriber** notices."
 
 > **Dev:** "Can one **Subscriber** link multiple active Source Spreadsheets?"
 > **Domain expert:** "No — one Subscriber represents one person with one active **Source Spreadsheet**."
