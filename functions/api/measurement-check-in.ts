@@ -4,7 +4,7 @@ import type {
   MeasurementsResponse,
 } from '../../src/contracts/measurements';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
-import { SourceSpreadsheetSchemaError } from '../lib/config';
+import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import {
   MeasurementCheckInConflictError,
   saveMeasurementCheckIn,

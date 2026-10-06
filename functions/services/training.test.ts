@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { LiftLogConflictError } from '../lib/lift-log-errors';
 import { resolveCoachTemplate } from '../coach-templates/registry';
-import { SourceSpreadsheetSchemaError } from '../lib/config';
+import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 import {
   fakeSpreadsheetOf,
@@ -534,6 +534,24 @@ describe('readTrainingWeeks', () => {
     await expect(
       readTrainingWeeks(gatewayFor([matching, matching, matching, mismatch]))
     ).rejects.toBeInstanceOf(SourceSpreadsheetSchemaError);
+  });
+
+  it('reports an unreadable-tabs problem when the gateway drops a grid', async () => {
+    const sheets = Array.from({ length: 4 }, () => makeSheet([{ weeks: [] }]));
+    const inner = gatewayFor(sheets);
+    const droppingGateway: SpreadsheetGateway = {
+      ...inner,
+      listSheetTitles: () => inner.listSheetTitles(),
+      readRanges: async (ranges, render) =>
+        (await inner.readRanges(ranges, render)).slice(1),
+    };
+
+    const error = await readTrainingWeeks(droppingGateway).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+    expect((error as SourceSpreadsheetSchemaError).problems).toMatchObject([
+      { code: 'unreadable-tabs', tab: null, cell: null },
+    ]);
   });
 
   it('marks set counts above the sheet capacity unavailable', async () => {

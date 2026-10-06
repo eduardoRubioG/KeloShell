@@ -2,7 +2,8 @@ import type {
   BodyweightResponse,
   DailyBodyweightRequest,
 } from '../../src/contracts/body';
-import { BODYWEIGHT_SHEET_NAME, SourceSpreadsheetSchemaError } from './config';
+import { BODYWEIGHT_SHEET_NAME } from './config';
+import { SourceSpreadsheetSchemaError } from './format-problems';
 
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 

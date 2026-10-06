@@ -7,7 +7,7 @@ import {
   writeDailySteps,
   type StepsGateway,
 } from './steps-tracking';
-import { SourceSpreadsheetSchemaError } from './config';
+import { SourceSpreadsheetSchemaError } from './format-problems';
 
 class MockGateway implements StepsGateway {
   raw: unknown[][];

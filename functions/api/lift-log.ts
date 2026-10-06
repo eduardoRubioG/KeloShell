@@ -5,7 +5,7 @@ import type {
 } from '../../src/contracts/training';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
 import { resolveCoachTemplate } from '../coach-templates/registry';
-import { SourceSpreadsheetSchemaError } from '../lib/config';
+import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 import { LiftLogConflictError, writeLiftLog } from '../services/training';
 import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';

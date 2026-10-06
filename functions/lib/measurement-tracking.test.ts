@@ -6,7 +6,7 @@ import {
   saveMeasurementCheckIn,
   type MeasurementTrackingGateway,
 } from './measurement-tracking';
-import { SourceSpreadsheetSchemaError } from './config';
+import { SourceSpreadsheetSchemaError } from './format-problems';
 
 class MockGateway implements MeasurementTrackingGateway {
   constructor(

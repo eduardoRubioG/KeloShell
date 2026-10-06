@@ -5,4 +5,3 @@ export const CREATINE_HABIT_KEY = 'creatine';
 
 export const STEPS_SHEET_NAME = 'Steps';
 
-export { SourceSpreadsheetSchemaError } from './format-problems';

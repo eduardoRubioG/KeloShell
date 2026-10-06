@@ -15,10 +15,9 @@ import type { FormatProblem } from '../../lib/format-problems';
 import type { TrainingReport, TrainingTemplate } from '../types';
 
 const LIFT_GROUP_WIDTH = 6;
-// Widened from 7 to 14 after Emily's "Full A" (Monday) session silently lost
-// its trailing abdominal exercises: the sheet range and this scan limit both
-// capped out at 7 lift blocks (42 columns, A:AP), so anything programmed
-// after the 7th exercise was never read at all.
+// Widened from 7 to 14: a Workout Session with more than 7 lift blocks used to
+// silently lose its trailing exercises because the sheet range and this scan
+// limit both capped out at 7 blocks (42 columns, A:AP).
 const MAX_LIFT_GROUPS = 14;
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 
@@ -156,7 +155,16 @@ async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis
     formattedGrids.length !== tabNames.length
   ) {
     throw new SourceSpreadsheetSchemaError(
-      'The required Workout Session tabs could not be read.'
+      'The required Workout Session tabs could not be read.',
+      [
+        {
+          code: 'unreadable-tabs',
+          tab: null,
+          cell: null,
+          message:
+            'The Source Spreadsheet returned a different number of tab grids than were requested, so the Workout Session tabs could not be read. Retry; if it persists, check the spreadsheet is shared with the service account.',
+        },
+      ]
     );
   }
 

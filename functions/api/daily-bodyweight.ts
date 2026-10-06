@@ -1,7 +1,7 @@
 import type { ApiErrorResponse } from '../../src/contracts/training';
 import type { BodyweightResponse, DailyBodyweightRequest } from '../../src/contracts/body';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
-import { SourceSpreadsheetSchemaError } from '../lib/config';
+import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import {
   BodyweightConflictError,
   writeDailyBodyweight,
