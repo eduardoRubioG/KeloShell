@@ -8,9 +8,10 @@ import type {
   TrainingWeeksResponse,
   TrainingWeekSummary,
 } from '../../../src/contracts/training';
-import { SourceSpreadsheetSchemaError } from '../../lib/config';
+import { SourceSpreadsheetSchemaError } from '../../lib/format-problems';
 import type { SpreadsheetGateway } from '../../lib/spreadsheet-gateway';
-import type { TrainingTemplate } from '../types';
+import type { FormatProblem } from '../../lib/format-problems';
+import type { TrainingReport, TrainingTemplate } from '../types';
 
 const LIFT_GROUP_WIDTH = 6;
 // Widened from 7 to 14 after Emily's "Full A" (Monday) session silently lost
@@ -61,20 +62,27 @@ interface ParsedSession {
 }
 
 export const coachPartnerTraining: TrainingTemplate = {
-  readTrainingWeeks: (gateway) => readTrainingWeeksFromTabs(gateway),
+  readTraining: async (gateway) => toReport(await analyzeSpreadsheet(gateway)),
   writeLiftLog: (gateway, request) => writeLiftLogToTabs(gateway, request),
 };
 
 /**
- * Reads Training Weeks. With `sessionNames` the given tabs are used as the
- * Workout Sessions (legacy callers); without it they are discovered by
- * structure in spreadsheet tab order.
+ * Reads Training Weeks, throwing on blocking format problems. With
+ * `sessionNames` the given tabs are used as the Workout Sessions (legacy
+ * callers); without it they are discovered by structure in tab order.
  */
 export async function readTrainingWeeksFromTabs(
   gateway: SpreadsheetGateway | TrainingSheetGateway,
   sessionNames?: readonly string[]
 ): Promise<TrainingWeeksResponse> {
-  const sessions = await readParsedSessions(gateway, sessionNames);
+  return buildTrainingWeeks(
+    requireUsable(await analyzeSpreadsheet(gateway, sessionNames))
+  );
+}
+
+function buildTrainingWeeks(
+  sessions: readonly ParsedSession[]
+): TrainingWeeksResponse {
   const weeks = sessions[0].weeks.map((week, weekIndex) =>
     summarizeWeek(week.id, weekIndex + 1, sessions, weekIndex)
   );
@@ -111,10 +119,57 @@ function pickDefaultWeek(
   return availableWeeks[0];
 }
 
-async function readParsedSessions(
+const NON_BLOCKING_CODES = new Set([
+  'lift-missing-name',
+  'lift-missing-rep-target',
+  'set-count-out-of-range',
+]);
+const REQUIRED_PROGRAM_FIELDS = ['Progression', 'Sets', 'Reps'] as const;
+
+interface Analysis {
+  sessionNames: string[];
+  sessions: ParsedSession[];
+  problems: FormatProblem[];
+}
+
+const isBlocking = (problem: FormatProblem) =>
+  !NON_BLOCKING_CODES.has(problem.code);
+
+function hasBlockingProblem(analysis: Analysis): boolean {
+  return analysis.sessions.length === 0 || analysis.problems.some(isBlocking);
+}
+
+function toReport(analysis: Analysis): TrainingReport {
+  if (hasBlockingProblem(analysis)) {
+    return {
+      ok: false,
+      sessions: analysis.sessionNames,
+      problems: analysis.problems,
+    };
+  }
+  return {
+    ok: true,
+    sessions: analysis.sessionNames,
+    trainingWeeks: buildTrainingWeeks(analysis.sessions),
+    problems: analysis.problems,
+  };
+}
+
+function requireUsable(analysis: Analysis): ParsedSession[] {
+  if (hasBlockingProblem(analysis)) {
+    throw new SourceSpreadsheetSchemaError(
+      analysis.problems.find(isBlocking)?.message ??
+        'The Source Spreadsheet structure could not be interpreted.',
+      analysis.problems
+    );
+  }
+  return analysis.sessions;
+}
+
+async function analyzeSpreadsheet(
   gateway: SpreadsheetGateway | TrainingSheetGateway,
   sessionNames?: readonly string[]
-): Promise<ParsedSession[]> {
+): Promise<Analysis> {
   const tabNames =
     sessionNames ??
     (await (gateway as SpreadsheetGateway).listSheetTitles());
@@ -135,34 +190,57 @@ async function readParsedSessions(
     );
   }
 
+  const problems: FormatProblem[] = [];
+  const discovered: string[] = [];
   const sessions: ParsedSession[] = [];
   tabNames.forEach((name, index) => {
-    const isSession =
-      sessionNames !== undefined || hasLiftRow(unformattedGrids[index]);
-    if (isSession) {
-      sessions.push(
-        parseSession(name, unformattedGrids[index], formattedGrids[index])
-      );
+    if (sessionNames === undefined && !hasLiftRow(unformattedGrids[index])) {
+      return;
+    }
+    discovered.push(name);
+    const session = parseSession(
+      name,
+      unformattedGrids[index],
+      formattedGrids[index],
+      problems
+    );
+    if (session) {
+      sessions.push(session);
     }
   });
-  if (sessions.length === 0) {
-    throw new SourceSpreadsheetSchemaError(
-      'The Source Spreadsheet contains no Workout Sessions.'
-    );
+  if (discovered.length === 0) {
+    problems.push({
+      code: 'no-workout-sessions',
+      tab: null,
+      cell: null,
+      message:
+        'The Source Spreadsheet contains no Workout Sessions (no tab has a "Lift" row in column A).',
+    });
   }
-  validateMatchingWeekSequences(sessions);
-  return sessions;
+  validateMatchingWeekSequences(sessions, problems);
+  return { sessionNames: discovered, sessions, problems };
 }
 
 function hasLiftRow(rows: readonly unknown[][]): boolean {
   return findLabelRow(rows, 0, rows.length, 'Lift') !== -1;
 }
 
+function cellRef(columnIndex: number, rowIndex: number): string {
+  return `${columnName(columnIndex)}${rowIndex + 1}`;
+}
+
+/** Returns null when the tab has a blocking problem (already reported). */
 function parseSession(
   name: SessionName,
   rawRows: unknown[][],
-  formattedRows: unknown[][]
-): ParsedSession {
+  formattedRows: unknown[][],
+  problems: FormatProblem[]
+): ParsedSession | null {
+  let blocked = false;
+  const block = (problem: FormatProblem) => {
+    blocked = true;
+    problems.push(problem);
+  };
   const candidates: Array<{
     lifts: ProgrammedLift[] | null;
     rowIndex: number;
@@ -188,17 +266,40 @@ function parseSession(
       Math.min(nextDefinitionRow, definitionRow + 10),
       'Week'
     );
+    const liftCell = cellRef(0, definitionRow);
     if (weekHeaderRow === -1) {
-      throw new SourceSpreadsheetSchemaError(
-        `${name} contains a Program Definition without a Week header.`
-      );
+      block({
+        code: 'missing-week-header',
+        tab: name,
+        cell: liftCell,
+        message: `${name}: the Program Definition at ${liftCell} has no "Week" header row below it. Add a "Week" header row before the weekly rows.`,
+      });
+      continue;
+    }
+
+    const missingFields = REQUIRED_PROGRAM_FIELDS.filter(
+      (field) =>
+        findLabelRow(rawRows, definitionRow + 1, weekHeaderRow, field) === -1
+    );
+    if (missingFields.length > 0) {
+      for (const field of missingFields) {
+        block({
+          code: 'missing-program-field',
+          tab: name,
+          cell: liftCell,
+          message: `${name}: the Program Definition at ${liftCell} has no "${field}" row between "Lift" and "Week".`,
+        });
+      }
+      continue;
     }
 
     const lifts = parseProgramDefinition(
+      name,
       rawRows,
       formattedRows,
       definitionRow,
-      weekHeaderRow
+      weekHeaderRow,
+      problems
     );
     for (
       let weekRow = weekHeaderRow + 1;
@@ -211,9 +312,13 @@ function parseSession(
         continue;
       }
       if (!displayedDate) {
-        throw new SourceSpreadsheetSchemaError(
-          `${name} contains a week row without a readable date.`
-        );
+        block({
+          code: 'unreadable-week-date',
+          tab: name,
+          cell: cellRef(0, weekRow),
+          message: `${name}: the Training Week row at ${cellRef(0, weekRow)} has no readable date.`,
+        });
+        continue;
       }
       candidates.push({
         lifts,
@@ -227,28 +332,42 @@ function parseSession(
   }
 
   if (candidates.length === 0) {
-    throw new SourceSpreadsheetSchemaError(
-      `${name} does not contain any Training Week rows.`
-    );
+    if (!blocked) {
+      block({
+        code: 'no-week-rows',
+        tab: name,
+        cell: null,
+        message: `${name} does not contain any Training Week rows.`,
+      });
+    }
+    return null;
   }
 
-  const ids = normalizeWeekDates(
-    candidates.map(({ displayedDate, rawDate }) => ({
-      displayedDate,
-      rawDate,
-    }))
-  );
-  const uniqueIds = new Set(ids);
-  if (uniqueIds.size !== ids.length) {
-    throw new SourceSpreadsheetSchemaError(
-      `${name} contains duplicate Training Week dates.`
-    );
+  const ids = normalizeWeekDates(name, candidates, block);
+  const seen = new Set<string>();
+  ids.forEach((id, index) => {
+    if (id === null) {
+      return;
+    }
+    if (seen.has(id)) {
+      const cell = cellRef(0, candidates[index].rowIndex);
+      block({
+        code: 'duplicate-week-date',
+        tab: name,
+        cell,
+        message: `${name}: the Training Week date at ${cell} (${id}) appears more than once.`,
+      });
+    }
+    seen.add(id);
+  });
+  if (blocked) {
+    return null;
   }
 
   return {
     name,
     weeks: candidates.map((candidate, index) => ({
-      id: ids[index],
+      id: ids[index]!,
       rowIndex: candidate.rowIndex,
       lifts: candidate.lifts,
       values: candidate.values,
@@ -258,14 +377,20 @@ function parseSession(
 }
 
 function parseProgramDefinition(
+  tab: string,
   rawRows: unknown[][],
   formattedRows: unknown[][],
   definitionRow: number,
-  weekHeaderRow: number
+  weekHeaderRow: number,
+  problems: FormatProblem[]
 ): ProgrammedLift[] | null {
   const lifts: ProgrammedLift[] = [];
   const idCounts = new Map<string, number>();
   let invalid = false;
+  const report = (code: string, cell: string, message: string) => {
+    invalid = true;
+    problems.push({ code, tab, cell, message: `${tab}: ${message}` });
+  };
 
   for (
     let groupStart = 0;
@@ -273,22 +398,48 @@ function parseProgramDefinition(
     groupStart += LIFT_GROUP_WIDTH
   ) {
     const name = cellText(formattedRows[definitionRow]?.[groupStart + 1]);
-    if (!name) {
-      continue;
-    }
 
     const fields = new Map<string, unknown>();
+    const fieldRows = new Map<string, number>();
     for (let rowIndex = definitionRow + 1; rowIndex < weekHeaderRow; rowIndex += 1) {
       const label = cellText(rawRows[rowIndex]?.[groupStart]);
       if (label) {
         fields.set(label, formattedRows[rowIndex]?.[groupStart + 1]);
+        fieldRows.set(label, rowIndex);
       }
+    }
+    const valueCell = (label: string) =>
+      cellRef(groupStart + 1, fieldRows.get(label) ?? definitionRow);
+
+    if (!name) {
+      if (!isBlank(fields.get('Sets')) || !isBlank(fields.get('Reps'))) {
+        const cell = cellRef(groupStart + 1, definitionRow);
+        report(
+          'lift-missing-name',
+          cell,
+          `the lift programmed in column ${columnName(groupStart + 1)} has no name at ${cell}.`
+        );
+      }
+      continue;
     }
 
     const setSpec = parseSetSpec(fields.get('Sets'));
     const repTarget = cellText(fields.get('Reps'));
+    if (setSpec === null) {
+      report(
+        'set-count-out-of-range',
+        valueCell('Sets'),
+        `"${name}" at ${valueCell('Sets')} needs a Sets value of 1 to 4 (or a range like 2-3).`
+      );
+    }
+    if (!repTarget) {
+      report(
+        'lift-missing-rep-target',
+        valueCell('Reps'),
+        `"${name}" has no Rep Target at ${valueCell('Reps')}.`
+      );
+    }
     if (setSpec === null || !repTarget) {
-      invalid = true;
       continue;
     }
     const idBase = slugifyLiftName(name);
@@ -310,25 +461,40 @@ function parseProgramDefinition(
   return invalid || lifts.length === 0 ? null : lifts;
 }
 
+/** Week ids (ISO dates) per candidate; null where the date is invalid (reported). */
 function normalizeWeekDates(
-  dates: readonly { displayedDate: string; rawDate: unknown }[]
-): string[] {
-  const firstRawDate = serialDateToUtc(dates[0].rawDate);
-  const firstDisplayed = parseMonthDay(dates[0].displayedDate);
+  tab: string,
+  candidates: readonly {
+    rowIndex: number;
+    displayedDate: string;
+    rawDate: unknown;
+  }[],
+  block: (problem: FormatProblem) => void
+): (string | null)[] {
+  const invalidDate = (index: number, detail: string) => {
+    const cell = cellRef(0, candidates[index].rowIndex);
+    block({
+      code: 'invalid-week-date',
+      tab,
+      cell,
+      message: `${tab}: the Training Week date at ${cell} ${detail}.`,
+    });
+  };
+
+  const firstRawDate = serialDateToUtc(candidates[0].rawDate);
+  const firstDisplayed = parseMonthDay(candidates[0].displayedDate);
   if (!firstRawDate || !firstDisplayed) {
-    throw new SourceSpreadsheetSchemaError(
-      'The first Training Week date is not a valid spreadsheet date.'
-    );
+    invalidDate(0, 'is not a valid spreadsheet date');
+    return candidates.map(() => null);
   }
 
   let year = firstRawDate.getUTCFullYear();
   let previousOrdinal = 0;
-  return dates.map(({ displayedDate }) => {
+  return candidates.map(({ displayedDate }, index) => {
     const monthDay = parseMonthDay(displayedDate);
     if (!monthDay) {
-      throw new SourceSpreadsheetSchemaError(
-        `Training Week date "${displayedDate}" is not month/day formatted.`
-      );
+      invalidDate(index, `("${displayedDate}") is not month/day formatted`);
+      return null;
     }
     const ordinal = monthDay.month * 100 + monthDay.day;
     if (previousOrdinal > 0 && ordinal < previousOrdinal) {
@@ -341,9 +507,8 @@ function normalizeWeekDates(
       date.getUTCMonth() !== monthDay.month - 1 ||
       date.getUTCDate() !== monthDay.day
     ) {
-      throw new SourceSpreadsheetSchemaError(
-        `Training Week date "${displayedDate}" is not a calendar date.`
-      );
+      invalidDate(index, `("${displayedDate}") is not a calendar date`);
+      return null;
     }
     return formatIsoDate(date);
   });
@@ -464,7 +629,9 @@ export async function writeLiftLogToTabs(
   request: LiftLogRequest,
   sessionNames?: readonly string[]
 ): Promise<TrainingWeeksResponse> {
-  const sessions = await readParsedSessions(gateway, sessionNames);
+  const sessions = requireUsable(
+    await analyzeSpreadsheet(gateway, sessionNames)
+  );
   const session = sessions.find((candidate) => candidate.name === request.session);
   const week = session?.weeks.find((candidate) => candidate.id === request.weekId);
   const lift = week?.lifts?.find((candidate) => candidate.id === request.liftId);
@@ -778,17 +945,28 @@ function summarizeStatuses(
   return 'not-started';
 }
 
-function validateMatchingWeekSequences(sessions: readonly ParsedSession[]): void {
-  const expected = sessions[0].weeks.map((week) => week.id);
+function validateMatchingWeekSequences(
+  sessions: readonly ParsedSession[],
+  problems: FormatProblem[]
+): void {
+  if (sessions.length === 0) {
+    return;
+  }
+  const baseline = sessions[0];
   for (const session of sessions.slice(1)) {
-    const actual = session.weeks.map((week) => week.id);
-    if (
-      actual.length !== expected.length ||
-      actual.some((id, index) => id !== expected[index])
-    ) {
-      throw new SourceSpreadsheetSchemaError(
-        'Workout Session tabs do not contain the same Training Week sequence.'
-      );
+    const length = Math.max(baseline.weeks.length, session.weeks.length);
+    for (let index = 0; index < length; index += 1) {
+      if (baseline.weeks[index]?.id === session.weeks[index]?.id) {
+        continue;
+      }
+      const row = session.weeks[index]?.rowIndex;
+      problems.push({
+        code: 'week-dates-mismatch',
+        tab: session.name,
+        cell: row === undefined ? null : cellRef(0, row),
+        message: `${session.name} does not have the same Training Week dates as ${baseline.name}; the weeks must line up across every Workout Session tab.`,
+      });
+      break;
     }
   }
 }

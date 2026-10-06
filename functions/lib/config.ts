@@ -24,9 +24,4 @@ export const CREATINE_HABIT_KEY = 'creatine';
 
 export const STEPS_SHEET_NAME = 'Steps';
 
-export class SourceSpreadsheetSchemaError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SourceSpreadsheetSchemaError';
-  }
-}
+export { SourceSpreadsheetSchemaError } from './format-problems';

@@ -2,14 +2,28 @@ import type {
   LiftLogRequest,
   TrainingWeeksResponse,
 } from '../../src/contracts/training';
-import type { CoachTemplate } from '../coach-templates/types';
+import type { CoachTemplate, TrainingReport } from '../coach-templates/types';
+import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 
-export function readTrainingWeeks(
+const FORMAT_MESSAGE = 'The Source Spreadsheet structure could not be interpreted.';
+
+export function readTrainingReport(
+  gateway: SpreadsheetGateway,
+  template: CoachTemplate
+): Promise<TrainingReport> {
+  return template.training.readTraining(gateway);
+}
+
+export async function readTrainingWeeks(
   gateway: SpreadsheetGateway,
   template: CoachTemplate
 ): Promise<TrainingWeeksResponse> {
-  return template.training.readTrainingWeeks(gateway);
+  const report = await readTrainingReport(gateway, template);
+  if (!report.ok) {
+    throw new SourceSpreadsheetSchemaError(FORMAT_MESSAGE, report.problems);
+  }
+  return report.trainingWeeks;
 }
 
 export function writeLiftLog(
