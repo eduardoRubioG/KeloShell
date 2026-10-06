@@ -1,12 +1,27 @@
 import { describe, expect, it } from 'vitest';
 
-import type { TrainingWeeksGateway } from '../lib/training-weeks';
+import { resolveCoachTemplate } from '../coach-templates/registry';
+import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
+import { readTrainingWeeks } from '../services/training';
+import {
+  FakeSpreadsheet,
+  fakeSpreadsheetOf,
+  workoutSessionGrids,
+} from '../testing/fake-spreadsheet';
 import { handleLiftLogRequest } from './lift-log';
 
 const configuredEnv = {
   GOOGLE_SERVICE_ACCOUNT_EMAIL: 'test@example.com',
   GOOGLE_PRIVATE_KEY: 'private-key',
   GOOGLE_SPREADSHEET_ID: 'sheet-id',
+  LOCAL_AUTH_BYPASS: 'true',
+};
+
+const emilyEnv = {
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: 'test@example.com',
+  GOOGLE_PRIVATE_KEY: 'private-key',
+  EMILY_GOOGLE_SPREADSHEET_ID: 'emily-sheet-id',
+  EMILY_EMAIL: 'emily@example.com',
   LOCAL_AUTH_BYPASS: 'true',
 };
 
@@ -46,47 +61,172 @@ describe('PUT /api/lift-log', () => {
     const response = await handleLiftLogRequest(
       jsonRequest({
         operation: 'clear',
-        weekId: '2026-06-28',
+        weekId: WEEK_ID,
         session: 'Upper A',
         liftId: 'test-lift',
         revision: 'stale',
       }),
       configuredEnv,
-      () => new ValidGateway()
+      () => fourSessionSheet()
     );
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
       error: 'The Lift Log changed since it was loaded.',
     });
   });
+
+  it('writes into the discovered tab of the requested Workout Session', async () => {
+    const sheet = fourSessionSheet();
+    const revision = await revisionFor(sheet, 'Lower A');
+
+    const response = await handleLiftLogRequest(
+      saveRequest('Lower A', revision),
+      configuredEnv,
+      () => sheet
+    );
+
+    expect(response.status).toBe(200);
+    expect(await weightCell(sheet, 'Lower A')).toBe(135);
+    expect(await weightCell(sheet, 'Upper A')).toBe('');
+    expect(await weightCell(sheet, 'Upper B')).toBe('');
+    expect(await weightCell(sheet, 'Lower B')).toBe('');
+  });
+
+  it('follows a renamed and reordered Workout Session tab', async () => {
+    const sheet = fourSessionSheet();
+    sheet.rename('Lower A', 'Legs');
+    sheet.reorder(['Legs', 'Upper A', 'Upper B', 'Lower B']);
+    const revision = await revisionFor(sheet, 'Legs');
+
+    const response = await handleLiftLogRequest(
+      saveRequest('Legs', revision),
+      configuredEnv,
+      () => sheet
+    );
+
+    expect(response.status).toBe(200);
+    expect(await weightCell(sheet, 'Legs')).toBe(135);
+    expect(await weightCell(sheet, 'Upper A')).toBe('');
+  });
+
+  it('writes into the right tab of a 3-session sheet for Emily', async () => {
+    const sheet = fakeSpreadsheetOf(
+      [sessionGrids(), sessionGrids(), sessionGrids()],
+      ['Full A', 'Full B', 'Full C']
+    );
+    const revision = await revisionFor(sheet, 'Full B');
+
+    const response = await handleLiftLogRequest(
+      saveRequest('Full B', revision, '?as=emily'),
+      emilyEnv,
+      () => sheet
+    );
+
+    expect(response.status).toBe(200);
+    expect(await weightCell(sheet, 'Full B')).toBe(135);
+    expect(await weightCell(sheet, 'Full A')).toBe('');
+    expect(await weightCell(sheet, 'Full C')).toBe('');
+  });
+
+  it('rejects a Workout Session that was not discovered', async () => {
+    const sheet = fourSessionSheet();
+    const revision = await revisionFor(sheet, 'Lower A');
+
+    const response = await handleLiftLogRequest(
+      saveRequest('Full A', revision),
+      configuredEnv,
+      () => sheet
+    );
+
+    expect(response.status).toBe(400);
+    expect(await weightCell(sheet, 'Lower A')).toBe('');
+  });
+
+  it('never writes into an unrelated tab', async () => {
+    const sheet = new FakeSpreadsheet([
+      { title: 'Notes', cells: [['Remember', 'to stretch'], ['hello']] },
+      { title: 'Upper A', ...sessionGrids() },
+    ]);
+    const notes = JSON.stringify(
+      await sheet.readRanges(["'Notes'!A:B"], 'UNFORMATTED_VALUE')
+    );
+    const revision = await revisionFor(sheet, 'Upper A');
+
+    const unrelated = await handleLiftLogRequest(
+      saveRequest('Notes', revision),
+      configuredEnv,
+      () => sheet
+    );
+    expect(unrelated.status).toBe(400);
+
+    const ok = await handleLiftLogRequest(
+      saveRequest('Upper A', revision),
+      configuredEnv,
+      () => sheet
+    );
+    expect(ok.status).toBe(200);
+    expect(
+      JSON.stringify(
+        await sheet.readRanges(["'Notes'!A:B"], 'UNFORMATTED_VALUE')
+      )
+    ).toBe(notes);
+  });
 });
 
-class ValidGateway implements TrainingWeeksGateway {
-  async readRanges(
-    _ranges: readonly string[],
-    option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
-  ): Promise<unknown[][][]> {
-    const grid = [
-      ['Lift', 'Test Lift'],
-      ['Progression', 'Dynamic DP'],
-      ['Sets', 3],
-      ['Reps', '6-8'],
-      ['Cue', 'Controlled reps'],
-      ['Week', 'Weight', 1, 2, 3, 4],
-      [46201],
-    ];
-    const formatted = grid.map((row) => [...row]);
-    formatted[6][0] = '6/28';
-    const sheet = option === 'UNFORMATTED_VALUE' ? grid : formatted;
-    return [sheet, sheet, sheet, sheet];
-  }
+const WEEK_ID = '2026-06-28';
 
-  async writeRange(): Promise<void> {}
-  async clearRange(): Promise<void> {}
+function sessionGrids() {
+  return workoutSessionGrids([
+    { weeks: [{ displayDate: '6/28', rawDate: WEEK_ID }] },
+  ]);
 }
 
-function jsonRequest(body: unknown): Request {
-  return new Request('http://localhost/api/lift-log', {
+function fourSessionSheet(): FakeSpreadsheet {
+  return fakeSpreadsheetOf([
+    sessionGrids(),
+    sessionGrids(),
+    sessionGrids(),
+    sessionGrids(),
+  ]);
+}
+
+function saveRequest(session: string, revision: string, query = ''): Request {
+  return jsonRequest(
+    {
+      operation: 'save',
+      weekId: WEEK_ID,
+      session,
+      liftId: 'test-lift',
+      revision,
+      weight: 135,
+      setResults: [8, 8, 7],
+    },
+    query
+  );
+}
+
+async function revisionFor(
+  sheet: SpreadsheetGateway,
+  session: string
+): Promise<string> {
+  const weeks = await readTrainingWeeks(sheet, resolveCoachTemplate('eduardo'));
+  const lift = weeks.weeks[0].sessions
+    .find((candidate) => candidate.name === session)!
+    .lifts.find((candidate) => candidate.id === 'test-lift')!;
+  return lift.revision;
+}
+
+/** Weight cell (column B) of the single logged week row, 8th row of the tab. */
+async function weightCell(
+  sheet: SpreadsheetGateway,
+  tab: string
+): Promise<unknown> {
+  const [grid] = await sheet.readRanges([`'${tab}'!B7`], 'UNFORMATTED_VALUE');
+  return grid[0]?.[0] ?? '';
+}
+
+function jsonRequest(body: unknown, query = ''): Request {
+  return new Request(`http://localhost/api/lift-log${query}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

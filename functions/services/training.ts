@@ -6,6 +6,8 @@ import type { CoachTemplate, TrainingReport } from '../coach-templates/types';
 import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 
+export { LiftLogConflictError, UnknownWorkoutSessionError } from '../lib/lift-log-errors';
+
 const FORMAT_MESSAGE = 'The Source Spreadsheet structure could not be interpreted.';
 
 export function readTrainingReport(

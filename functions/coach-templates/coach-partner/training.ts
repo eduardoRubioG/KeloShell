@@ -9,6 +9,7 @@ import type {
   TrainingWeekSummary,
 } from '../../../src/contracts/training';
 import { SourceSpreadsheetSchemaError } from '../../lib/format-problems';
+import { LiftLogConflictError, UnknownWorkoutSessionError } from '../../lib/lift-log-errors';
 import type { SpreadsheetGateway } from '../../lib/spreadsheet-gateway';
 import type { FormatProblem } from '../../lib/format-problems';
 import type { TrainingReport, TrainingTemplate } from '../types';
@@ -21,18 +22,6 @@ const LIFT_GROUP_WIDTH = 6;
 const MAX_LIFT_GROUPS = 14;
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 
-/** The gateway operations the parser needs; tab discovery is optional. */
-export type TrainingSheetGateway = Pick<
-  SpreadsheetGateway,
-  'readRanges' | 'writeRange' | 'clearRange'
->;
-
-export class LiftLogConflictError extends Error {
-  constructor(message = 'The Lift Log changed since it was loaded.') {
-    super(message);
-    this.name = 'LiftLogConflictError';
-  }
-}
 
 interface ProgrammedLift {
   id: string;
@@ -63,22 +52,8 @@ interface ParsedSession {
 
 export const coachPartnerTraining: TrainingTemplate = {
   readTraining: async (gateway) => toReport(await analyzeSpreadsheet(gateway)),
-  writeLiftLog: (gateway, request) => writeLiftLogToTabs(gateway, request),
+  writeLiftLog,
 };
-
-/**
- * Reads Training Weeks, throwing on blocking format problems. With
- * `sessionNames` the given tabs are used as the Workout Sessions (legacy
- * callers); without it they are discovered by structure in tab order.
- */
-export async function readTrainingWeeksFromTabs(
-  gateway: SpreadsheetGateway | TrainingSheetGateway,
-  sessionNames?: readonly string[]
-): Promise<TrainingWeeksResponse> {
-  return buildTrainingWeeks(
-    requireUsable(await analyzeSpreadsheet(gateway, sessionNames))
-  );
-}
 
 function buildTrainingWeeks(
   sessions: readonly ParsedSession[]
@@ -166,13 +141,8 @@ function requireUsable(analysis: Analysis): ParsedSession[] {
   return analysis.sessions;
 }
 
-async function analyzeSpreadsheet(
-  gateway: SpreadsheetGateway | TrainingSheetGateway,
-  sessionNames?: readonly string[]
-): Promise<Analysis> {
-  const tabNames =
-    sessionNames ??
-    (await (gateway as SpreadsheetGateway).listSheetTitles());
+async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis> {
+  const tabNames = await gateway.listSheetTitles();
   const ranges = tabNames.map((name) => `'${name.replace(/'/g, "''")}'!A:CF`);
   const unformattedGrids = ranges.length
     ? await gateway.readRanges(ranges, 'UNFORMATTED_VALUE')
@@ -194,7 +164,7 @@ async function analyzeSpreadsheet(
   const discovered: string[] = [];
   const sessions: ParsedSession[] = [];
   tabNames.forEach((name, index) => {
-    if (sessionNames === undefined && !hasLiftRow(unformattedGrids[index])) {
+    if (!hasLiftRow(unformattedGrids[index])) {
       return;
     }
     discovered.push(name);
@@ -624,14 +594,15 @@ function detailLift(
   };
 }
 
-export async function writeLiftLogToTabs(
-  gateway: SpreadsheetGateway | TrainingSheetGateway,
-  request: LiftLogRequest,
-  sessionNames?: readonly string[]
+async function writeLiftLog(
+  gateway: SpreadsheetGateway,
+  request: LiftLogRequest
 ): Promise<TrainingWeeksResponse> {
-  const sessions = requireUsable(
-    await analyzeSpreadsheet(gateway, sessionNames)
-  );
+  const analysis = await analyzeSpreadsheet(gateway);
+  const sessions = requireUsable(analysis);
+  if (!analysis.sessionNames.includes(request.session)) {
+    throw new UnknownWorkoutSessionError(request.session);
+  }
   const session = sessions.find((candidate) => candidate.name === request.session);
   const week = session?.weeks.find((candidate) => candidate.id === request.weekId);
   const lift = week?.lifts?.find((candidate) => candidate.id === request.liftId);
@@ -672,7 +643,9 @@ export async function writeLiftLogToTabs(
     ]);
   }
 
-  const response = await readTrainingWeeksFromTabs(gateway, sessionNames);
+  const response = buildTrainingWeeks(
+    requireUsable(await analyzeSpreadsheet(gateway))
+  );
   const updatedLift = response.weeks
     .find((candidate) => candidate.id === request.weekId)
     ?.sessions.find((candidate) => candidate.name === request.session)

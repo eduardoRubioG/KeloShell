@@ -1,8 +1,10 @@
 import type { StreakSummary, StreaksResponse, CreatineLogRequest } from '../../src/contracts/streaks';
-import type { SessionName, TrainingWeeksResponse } from '../../src/contracts/training';
-import { HABITS_SHEET_NAME, CREATINE_HABIT_KEY, SESSION_NAMES } from './config';
+import type { TrainingWeeksResponse } from '../../src/contracts/training';
+import { HABITS_SHEET_NAME, CREATINE_HABIT_KEY } from './config';
 import { readBodyweight, type BodyTrackingGateway } from './body-tracking';
-import { readTrainingWeeks, type TrainingWeeksGateway } from './training-weeks';
+import type { CoachTemplate } from '../coach-templates/types';
+import { readTrainingWeeks } from '../services/training';
+import type { SpreadsheetGateway } from './spreadsheet-gateway';
 
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 
@@ -135,19 +137,19 @@ export async function computeStreaks({
   habitsGateway,
   bodyweightGateway,
   trainingGateway,
-  sessionNames = SESSION_NAMES,
+  template,
   today,
 }: {
   habitsGateway: HabitsGateway;
   bodyweightGateway: BodyTrackingGateway;
-  trainingGateway: TrainingWeeksGateway;
-  sessionNames?: readonly SessionName[];
+  trainingGateway: SpreadsheetGateway;
+  template: CoachTemplate;
   today: string;
 }): Promise<StreaksResponse> {
   const [creatineDates, bodyweightResponse, trainingResponse] = await Promise.all([
     readCreatineDates(habitsGateway),
     readBodyweight(bodyweightGateway),
-    readTrainingWeeks(trainingGateway, sessionNames),
+    readTrainingWeeks(trainingGateway, template),
   ]);
 
   const creatineStreak = consecutiveStreak(creatineDates, today);

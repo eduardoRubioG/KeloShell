@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { LiftLogConflictError } from '../coach-templates/coach-partner/training';
+import { LiftLogConflictError } from '../lib/lift-log-errors';
 import { resolveCoachTemplate } from '../coach-templates/registry';
 import { SourceSpreadsheetSchemaError } from '../lib/config';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';

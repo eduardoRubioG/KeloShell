@@ -1,13 +1,14 @@
 import type { ApiErrorResponse } from '../../src/contracts/training';
 import type { StreaksResponse } from '../../src/contracts/streaks';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
-import { SESSION_NAMES_BY_USER, SourceSpreadsheetSchemaError } from '../lib/config';
+import { resolveCoachTemplate } from '../coach-templates/registry';
+import { SourceSpreadsheetSchemaError } from '../lib/config';
+import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 import {
   computeStreaks,
   type HabitsGateway,
 } from '../lib/streaks';
 import type { BodyTrackingGateway } from '../lib/body-tracking';
-import type { TrainingWeeksGateway } from '../lib/training-weeks';
 import {
   getMetaCredentials,
   getSourceCredentials,
@@ -19,7 +20,7 @@ type Env = UserResolutionEnv;
 
 type MainGatewayFactory = (
   credentials: GoogleSheetsCredentials
-) => BodyTrackingGateway & TrainingWeeksGateway;
+) => BodyTrackingGateway & SpreadsheetGateway;
 type HabitsGatewayFactory = (credentials: GoogleSheetsCredentials) => HabitsGateway;
 
 export const onRequest: PagesFunction<Env> = async (context) =>
@@ -63,7 +64,7 @@ export async function handleStreaksRequest(
       habitsGateway,
       bodyweightGateway: mainGateway,
       trainingGateway: mainGateway,
-      sessionNames: SESSION_NAMES_BY_USER[userId],
+      template: resolveCoachTemplate(userId),
       today,
     });
     return json(response, 200);

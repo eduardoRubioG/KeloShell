@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type { HabitsGateway } from '../lib/streaks';
-import type { BodyTrackingGateway } from '../lib/body-tracking';
-import type { TrainingWeeksGateway } from '../lib/training-weeks';
-import { SESSION_NAMES, SESSION_NAMES_BY_USER } from '../lib/config';
+import { BODYWEIGHT_SHEET_NAME } from '../lib/config';
+import { FakeSpreadsheet, serialDate, workoutSessionGrids } from '../testing/fake-spreadsheet';
 import { handleStreaksRequest } from './streaks';
 import { handleCreatineLogRequest } from './creatine-log';
 
@@ -24,74 +23,48 @@ const emilyConfiguredEnv = {
   LOCAL_AUTH_BYPASS: 'true',
 };
 
-const SHEETS_EPOCH = Date.UTC(1899, 11, 30);
-const DAY = 86_400_000;
-function serial(isoDate: string): number {
-  return (Date.parse(`${isoDate}T00:00:00Z`) - SHEETS_EPOCH) / DAY;
-}
+const DEFAULT_TITLES = ['Upper A', 'Lower A', 'Upper B', 'Lower B'];
 
-function makeMinimalSessionGrid(weekIsoDate: string, completedSessions = 0): unknown[][] {
-  const weight = completedSessions > 0 ? 100 : '';
-  const sets = completedSessions > 0 ? [8, 8, 8] : [];
-  return [
-    ['Lift', 'Test Lift'],
-    ['Progression', 'Standard DP'],
-    ['Sets', 3],
-    ['Reps', '6-8'],
-    ['Cue', ''],
-    ['Week', 'Weight', 1, 2, 3, 4],
-    [serial(weekIsoDate), weight, ...sets],
-  ];
-}
-
-function makeMinimalSessionDates(weekIsoDate: string): unknown[][] {
+/** Source Spreadsheet with the bodyweight tab plus one Workout Session tab per title. */
+function mainSheet(
+  weekIsoDate = '2026-06-29',
+  completedSessions = 4,
+  sessionTitles: readonly string[] = DEFAULT_TITLES
+): FakeSpreadsheet {
   const d = new Date(`${weekIsoDate}T00:00:00Z`);
   const displayDate = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-  return [[], [], [], [], [], [], [displayDate]];
-}
-
-type CombinedGateway = BodyTrackingGateway & TrainingWeeksGateway;
-
-class ValidMainGateway implements CombinedGateway {
-  constructor(
-    private readonly weekIsoDate: string = '2026-06-29',
-    private readonly completedSessions: number = 4,
-    private readonly sessionNames: readonly string[] = SESSION_NAMES
-  ) {}
-
-  async readRanges(
-    ranges: readonly string[],
-    option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
-  ): Promise<unknown[][][]> {
-    const isBodyweight = ranges.some((r) => r.includes('Tracking'));
-    if (isBodyweight) {
-      const raw = [
+  const sessionTabs = sessionTitles.map((title, index) => ({
+    title,
+    ...workoutSessionGrids([
+      {
+        weeks: [
+          {
+            displayDate,
+            rawDate: weekIsoDate,
+            ...(index < completedSessions ? { weight: 100, sets: [8, 8, 8] } : {}),
+          },
+        ],
+      },
+    ]),
+  }));
+  return new FakeSpreadsheet([
+    {
+      title: BODYWEIGHT_SHEET_NAME,
+      cells: [
         [],
         ['Date', 'Weight'],
-        [serial('2026-06-30'), 225.6],
-        [serial('2026-07-01'), 226.0],
-      ];
-      const fmt = [
+        [serialDate('2026-06-30'), 225.6],
+        [serialDate('2026-07-01'), 226.0],
+      ],
+      formatted: [
         [],
         ['Date', 'Weight'],
         ['6/30', '225.6'],
         ['7/1', '226.0'],
-      ];
-      return [option === 'UNFORMATTED_VALUE' ? raw : fmt];
-    }
-    // Training reads: returns one identical session grid per configured tab.
-    if (option === 'UNFORMATTED_VALUE') {
-      return this.sessionNames.map(() =>
-        makeMinimalSessionGrid(this.weekIsoDate, this.completedSessions)
-      );
-    }
-    return this.sessionNames.map(() =>
-      makeMinimalSessionDates(this.weekIsoDate)
-    );
-  }
-
-  async writeRange(): Promise<void> {}
-  async clearRange(): Promise<void> {}
+      ],
+    },
+    ...sessionTabs,
+  ]);
 }
 
 class MockHabitsGateway implements HabitsGateway {
@@ -130,15 +103,20 @@ class MockHabitsGateway implements HabitsGateway {
 }
 
 describe('GET /api/streaks', () => {
-  it('uses Emily’s Full A/B/C tabs', async () => {
+  it('computes workout streaks from Emily’s 3-session sheet', async () => {
     const response = await handleStreaksRequest(
       new Request('http://localhost/api/streaks?as=emily&today=2026-07-01'),
       emilyConfiguredEnv,
-      () => new ValidMainGateway('2026-06-29', 3, SESSION_NAMES_BY_USER.emily),
+      () => mainSheet('2026-06-29', 3, ['Full A', 'Full B', 'Full C']),
       () => new MockHabitsGateway()
     );
 
     expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      streaks: Array<{ key: string; count: number; todayComplete: boolean }>;
+    };
+    const workouts = body.streaks.find((s) => s.key === 'workouts');
+    expect(workouts).toMatchObject({ count: 1, todayComplete: true });
   });
 
   it('requires Private Tool Access away from localhost', async () => {
@@ -181,7 +159,7 @@ describe('GET /api/streaks', () => {
     const response = await handleStreaksRequest(
       new Request('http://localhost/api/streaks?today=2026-07-01'),
       configuredEnv,
-      () => new ValidMainGateway('2026-06-29', 4),
+      () => mainSheet('2026-06-29', 4),
       () => habitsGateway
     );
     expect(response.status).toBe(200);
@@ -200,7 +178,7 @@ describe('GET /api/streaks', () => {
     const response = await handleStreaksRequest(
       new Request('http://localhost/api/streaks'),
       configuredEnv,
-      () => new ValidMainGateway('2026-06-29', 4),
+      () => mainSheet('2026-06-29', 4),
       () => new MockHabitsGateway()
     );
     expect(response.status).toBe(200);
@@ -249,7 +227,7 @@ describe('PUT /api/creatine-log', () => {
         body: JSON.stringify({ operation: 'invalid', date: '2026-07-01' }),
       }),
       configuredEnv,
-      () => new ValidMainGateway(),
+      () => mainSheet(),
       () => new MockHabitsGateway()
     );
     expect(response.status).toBe(400);
@@ -263,7 +241,7 @@ describe('PUT /api/creatine-log', () => {
         body: JSON.stringify({ operation: 'log', date: '2026-07-01' }),
       }),
       configuredEnv,
-      () => new ValidMainGateway('2026-06-29', 4),
+      () => mainSheet('2026-06-29', 4),
       () => habitsGateway
     );
     expect(response.status).toBe(200);
@@ -283,7 +261,7 @@ describe('PUT /api/creatine-log', () => {
         body: JSON.stringify({ operation: 'unlog', date: '2026-07-01' }),
       }),
       configuredEnv,
-      () => new ValidMainGateway('2026-06-29', 4),
+      () => mainSheet('2026-06-29', 4),
       () => habitsGateway
     );
     expect(response.status).toBe(200);
