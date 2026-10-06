@@ -176,4 +176,39 @@ describe('GoogleSheetsClient', () => {
       "'Upper%20A'!B7%3AF7:clear"
     );
   });
+
+  it('lists tab titles in spreadsheet order', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ access_token: 'token-value', expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          sheets: [
+            { properties: { title: 'Lower A', index: 1 } },
+            { properties: { title: 'Notes', index: 2 } },
+            { properties: { title: 'Upper A', index: 0 } },
+          ],
+        })
+      );
+    const client = new GoogleSheetsClient(
+      {
+        clientEmail: 'test@example.iam.gserviceaccount.com',
+        privateKey: await privateKeyPem(),
+        spreadsheetId: 'replica-id',
+      },
+      request,
+      () => 1_700_000_000_000
+    );
+
+    await expect(client.listSheetTitles()).resolves.toEqual([
+      'Upper A',
+      'Lower A',
+      'Notes',
+    ]);
+    const url = new URL(String(request.mock.calls[1][0]));
+    expect(url.pathname).toBe('/v4/spreadsheets/replica-id');
+    expect(url.searchParams.get('fields')).toBe('sheets.properties(title,index)');
+  });
 });

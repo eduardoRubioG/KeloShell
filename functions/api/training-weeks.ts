@@ -2,18 +2,25 @@ import type {
   ApiErrorResponse,
   TrainingWeeksResponse,
 } from '../../src/contracts/training';
-import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
 import {
-  readTrainingWeeks,
-  SourceSpreadsheetSchemaError,
-  type TrainingWeeksGateway,
-} from '../lib/training-weeks';
-import { SESSION_NAMES_BY_USER } from '../lib/config';
-import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
+  GoogleSheetsClient,
+  type GoogleSheetsCredentials,
+} from '../lib/google-sheets';
+import { resolveCoachTemplate } from '../coach-templates/registry';
+import { SourceSpreadsheetSchemaError } from '../lib/config';
+import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
+import { readTrainingWeeks } from '../services/training';
+import {
+  getSourceCredentials,
+  resolveUserId,
+  type UserResolutionEnv,
+} from '../lib/users';
 
 type Env = UserResolutionEnv;
 
-type GatewayFactory = (credentials: GoogleSheetsCredentials) => TrainingWeeksGateway;
+type GatewayFactory = (
+  credentials: GoogleSheetsCredentials
+) => SpreadsheetGateway;
 
 export const onRequest: PagesFunction<Env> = async (context) =>
   handleTrainingWeeksRequest(context.request, context.env);
@@ -43,7 +50,7 @@ export async function handleTrainingWeeksRequest(
   try {
     const response = await readTrainingWeeks(
       createGateway(credentials),
-      SESSION_NAMES_BY_USER[userId]
+      resolveCoachTemplate(userId)
     );
     return json(response, 200);
   } catch (error) {
@@ -57,7 +64,9 @@ export async function handleTrainingWeeksRequest(
   }
 }
 
-function defaultGatewayFactory(credentials: GoogleSheetsCredentials): TrainingWeeksGateway {
+function defaultGatewayFactory(
+  credentials: GoogleSheetsCredentials
+): SpreadsheetGateway {
   return new GoogleSheetsClient(credentials);
 }
 

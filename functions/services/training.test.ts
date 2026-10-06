@@ -1,65 +1,28 @@
 import { describe, expect, it } from 'vitest';
 
+import { LiftLogConflictError } from '../coach-templates/coach-partner/training';
+import { resolveCoachTemplate } from '../coach-templates/registry';
+import { SourceSpreadsheetSchemaError } from '../lib/config';
+import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 import {
-  LiftLogConflictError,
-  readTrainingWeeks,
-  SourceSpreadsheetSchemaError,
-  writeLiftLog,
-  SESSION_NAMES,
-  type TrainingWeeksGateway,
-} from './training-weeks';
+  fakeSpreadsheetOf,
+  overlayFormatted,
+  serialDate,
+  workoutSessionGrids,
+  DEFAULT_SESSION_TITLES,
+} from '../testing/fake-spreadsheet';
+import * as training from './training';
 
-const DAY = 86_400_000;
-const SHEETS_EPOCH = Date.UTC(1899, 11, 30);
-
-interface WeekFixture {
-  displayDate: string;
-  rawDate: string;
-  weight?: unknown;
-  sets?: unknown[];
-}
-
-interface BlockFixture {
-  liftName?: string;
-  progression?: string;
-  setCount?: number;
-  /** Raw value for the Sets cell; overrides setCount (e.g. a "2-3" range). */
-  setsCell?: unknown;
-  repTarget?: unknown;
-  formattedRepTarget?: string;
-  weeks: WeekFixture[];
-}
-
-class FixtureGateway implements TrainingWeeksGateway {
-  constructor(
-    private readonly grids: unknown[][][],
-    private readonly dates: unknown[][][]
-  ) {}
-
-  async readRanges(
-    _ranges: readonly string[],
-    option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
-  ): Promise<unknown[][][]> {
-    return option === 'UNFORMATTED_VALUE' ? this.grids : this.dates;
-  }
-
-  async writeRange(
-    sheetName: string,
-    range: string,
-    values: readonly unknown[]
-  ): Promise<void> {
-    const sheetIndex = SESSION_NAMES.indexOf(sheetName as (typeof SESSION_NAMES)[number]);
-    const { row, startColumn } = parseRange(range);
-    values.forEach((value, index) => {
-      this.grids[sheetIndex][row][startColumn + index] = value;
-      this.dates[sheetIndex][row][startColumn + index] = value;
-    });
-  }
-
-  async clearRange(sheetName: string, range: string): Promise<void> {
-    await this.writeRange(sheetName, range, ['', '', '', '', '']);
-  }
-}
+const template = resolveCoachTemplate('eduardo');
+const readTrainingWeeks = (gateway: SpreadsheetGateway) =>
+  training.readTrainingWeeks(gateway, template);
+const writeLiftLog = (
+  gateway: SpreadsheetGateway,
+  request: Parameters<typeof training.writeLiftLog>[2]
+) => training.writeLiftLog(gateway, template, request);
+const makeSheet = workoutSessionGrids;
+const gatewayFor = fakeSpreadsheetOf;
+const serial = serialDate;
 
 describe('readTrainingWeeks', () => {
   it('normalizes New Year rollover and derives complete and partial statuses', async () => {
@@ -242,7 +205,7 @@ describe('readTrainingWeeks', () => {
   });
 
   it('skips past weeks whose every session was at least touched, landing on the first untouched week', async () => {
-    const sheets = SESSION_NAMES.map(() =>
+    const sheets = DEFAULT_SESSION_TITLES.map(() =>
       makeSheet([
         {
           weeks: [
@@ -626,9 +589,9 @@ describe('readTrainingWeeks', () => {
       weekRow[col + 4] = 7;
     });
     grid[6] = weekRow;
-    const dates: unknown[][] = [[], [], [], [], [], [], ['6/28']];
+    const formatted = overlayFormatted(grid, [[], [], [], [], [], [], ['6/28']]);
 
-    const sheets = Array.from({ length: 4 }, () => ({ grid, dates }));
+    const sheets = Array.from({ length: 4 }, () => ({ cells: grid, formatted }));
     const response = await readTrainingWeeks(gatewayFor(sheets));
 
     expect(response.weeks[0].sessions[0].totalLifts).toBe(8);
@@ -730,82 +693,3 @@ describe('writeLiftLog', () => {
     ).rejects.toBeInstanceOf(LiftLogConflictError);
   });
 });
-
-function gatewayFor(
-  sheets: Array<{ grid: unknown[][]; dates: unknown[][] }>
-): FixtureGateway {
-  return new FixtureGateway(
-    sheets.map((sheet) => sheet.grid),
-    sheets.map((sheet) =>
-      sheet.grid.map((row, rowIndex) => {
-        const formatted = [...row];
-        for (const [columnIndex, value] of (
-          sheet.dates[rowIndex] ?? []
-        ).entries()) {
-          if (value !== undefined) {
-            formatted[columnIndex] = value;
-          }
-        }
-        return formatted;
-      })
-    )
-  );
-}
-
-function makeSheet(blocks: BlockFixture[]): {
-  grid: unknown[][];
-  dates: unknown[][];
-} {
-  const grid: unknown[][] = [];
-  const dates: unknown[][] = [];
-
-  for (const block of blocks) {
-    const start = grid.length;
-    grid.push(['Lift', block.liftName ?? 'Test Lift']);
-    grid.push(['Progression', block.progression ?? 'Dynamic DP']);
-    grid.push(['Sets', block.setsCell ?? block.setCount ?? 3]);
-    grid.push(['Reps', block.repTarget ?? '6-8']);
-    grid.push(['Cue', 'Controlled reps']);
-    grid.push(['Week', 'Weight', 1, 2, 3, 4]);
-    dates.push(
-      [],
-      [],
-      [],
-      block.formattedRepTarget === undefined
-        ? []
-        : [undefined, block.formattedRepTarget],
-      [],
-      []
-    );
-
-    for (const week of block.weeks) {
-      grid.push([
-        serial(week.rawDate),
-        week.weight ?? '',
-        ...(week.sets ?? []),
-      ]);
-      dates.push([week.displayDate]);
-    }
-    if (grid.length === start) {
-      throw new Error('Fixture block was not created.');
-    }
-  }
-
-  return { grid, dates };
-}
-
-function serial(isoDate: string): number {
-  return (Date.parse(`${isoDate}T00:00:00Z`) - SHEETS_EPOCH) / DAY;
-}
-
-function parseRange(range: string): { row: number; startColumn: number } {
-  const match = /^([A-Z]+)(\d+):[A-Z]+\d+$/.exec(range);
-  if (!match) {
-    throw new Error(`Unexpected range: ${range}`);
-  }
-  let column = 0;
-  for (const character of match[1]) {
-    column = column * 26 + character.charCodeAt(0) - 64;
-  }
-  return { row: Number(match[2]) - 1, startColumn: column - 1 };
-}

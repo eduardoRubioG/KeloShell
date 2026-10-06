@@ -1,3 +1,5 @@
+import type { SpreadsheetGateway } from './spreadsheet-gateway';
+
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 const GOOGLE_SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -13,6 +15,10 @@ interface ValueResponse {
 
 interface BatchValueResponse {
   valueRanges?: Array<{ values?: unknown[][] }>;
+}
+
+interface SpreadsheetMetadataResponse {
+  sheets?: Array<{ properties?: { title?: string; index?: number } }>;
 }
 
 export interface GoogleSheetsCredentials {
@@ -94,7 +100,7 @@ async function createAssertion(
   return `${unsignedToken}.${encodeBase64Url(signature)}`;
 }
 
-export class GoogleSheetsClient {
+export class GoogleSheetsClient implements SpreadsheetGateway {
   private readonly request: typeof fetch;
 
   constructor(
@@ -107,6 +113,17 @@ export class GoogleSheetsClient {
 
   async authenticate(): Promise<void> {
     await this.getAccessToken();
+  }
+
+  async listSheetTitles(): Promise<string[]> {
+    const response = await this.sheetsRequest<SpreadsheetMetadataResponse>(
+      `?${new URLSearchParams({ fields: 'sheets.properties(title,index)' })}`
+    );
+    return (response.sheets ?? [])
+      .map((sheet) => sheet.properties)
+      .filter((properties) => typeof properties?.title === 'string')
+      .sort((left, right) => (left?.index ?? 0) - (right?.index ?? 0))
+      .map((properties) => properties!.title!);
   }
 
   async readValue(sheetName: string, cell: string): Promise<string> {
