@@ -133,8 +133,12 @@ A time-limited post-subscription state in which a Subscriber can view existing d
 _Avoid_: active subscription, free tier
 
 **Supported Spreadsheet Format**:
-The structural contract a **Source Spreadsheet** must satisfy before it can be linked, while permitting coach-defined session names, session counts, lifts, and programs.
+The structural contract a **Source Spreadsheet** must satisfy, under its **Coach Template**, before it can be linked, while permitting coach-defined session names, session counts, lifts, and programs.
 _Avoid_: exact template, per-client configuration
+
+**Coach Template**:
+One coach's way of structuring every **Source Spreadsheet** they author: tab signatures, layout, and validation rules. KeloShell supports each Coach Template through its own adapter behind template-agnostic services; the pilot ships with exactly one, the **Coach Partner**'s.
+_Avoid_: coach config, sheet type, per-client format
 
 **Sheet Health**:
 The current validation and link status of an enrolled **Source Spreadsheet**: whether it satisfies the **Supported Spreadsheet Format** and whether the **Account Email** still has direct access.
