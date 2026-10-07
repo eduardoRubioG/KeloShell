@@ -45,80 +45,60 @@ export async function evaluateTrackingReminders(
   return { kinds, trackingProblem: false };
 }
 
+interface ReminderCopy {
+  title: string;
+  body: string;
+  url: string;
+  actionTitle: string;
+}
+
+const REMINDER_COPY: Record<ReminderKind, (localDate: string) => ReminderCopy> = {
+  bodyweight: (localDate) => ({
+    title: 'Bodyweight Reminder',
+    body: "Today's bodyweight is ready to log.",
+    url: `/body?date=${localDate}`,
+    actionTitle: 'Log bodyweight',
+  }),
+  creatine: () => ({
+    title: 'Creatine Reminder',
+    body: "You haven't logged today's creatine yet.",
+    url: '/',
+    actionTitle: 'Log creatine',
+  }),
+  steps: (localDate) => ({
+    title: 'Steps Reminder',
+    body: "Today's step count is ready to log.",
+    url: `/steps?date=${localDate}`,
+    actionTitle: 'Log steps',
+  }),
+  'steps-yesterday': (localDate) => ({
+    title: 'Steps Reminder',
+    body: "You haven't logged yesterday's steps yet.",
+    url: `/steps?date=${addDays(localDate, -1)}`,
+    actionTitle: 'Log steps',
+  }),
+  measurement: (localDate) => ({
+    title: 'Measurement Reminder',
+    body: "Today's Measurement Check-In is ready.",
+    url: `/body?segment=check-ins&checkInDate=${localDate}`,
+    actionTitle: 'Open Body Tracking',
+  }),
+};
+
 export function reminderNotification(
   kind: ReminderKind,
   localDate: string
 ): PushNotificationPayload {
-  if (kind === 'bodyweight') {
-    return {
-      title: 'Bodyweight Reminder',
-      body: "Today's bodyweight is ready to log.",
-      url: `/body?date=${localDate}`,
-      tag: `bodyweight-reminder-${localDate}`,
-      vibrate: [100, 50, 100],
-      requireInteraction: true,
-      actions: [
-        { action: 'open', title: 'Log bodyweight' },
-        { action: 'dismiss', title: 'Dismiss' },
-      ],
-    };
-  }
-
-  if (kind === 'creatine') {
-    return {
-      title: 'Creatine Reminder',
-      body: "You haven't logged today's creatine yet.",
-      url: '/',
-      tag: `creatine-reminder-${localDate}`,
-      vibrate: [100, 50, 100],
-      requireInteraction: true,
-      actions: [
-        { action: 'open', title: 'Log creatine' },
-        { action: 'dismiss', title: 'Dismiss' },
-      ],
-    };
-  }
-
-  if (kind === 'steps') {
-    return {
-      title: 'Steps Reminder',
-      body: "Today's step count is ready to log.",
-      url: `/steps?date=${localDate}`,
-      tag: `steps-reminder-${localDate}`,
-      vibrate: [100, 50, 100],
-      requireInteraction: true,
-      actions: [
-        { action: 'open', title: 'Log steps' },
-        { action: 'dismiss', title: 'Dismiss' },
-      ],
-    };
-  }
-
-  if (kind === 'steps-yesterday') {
-    const yesterday = addDays(localDate, -1);
-    return {
-      title: 'Steps Reminder',
-      body: "You haven't logged yesterday's steps yet.",
-      url: `/steps?date=${yesterday}`,
-      tag: `steps-yesterday-reminder-${localDate}`,
-      vibrate: [100, 50, 100],
-      requireInteraction: true,
-      actions: [
-        { action: 'open', title: 'Log steps' },
-        { action: 'dismiss', title: 'Dismiss' },
-      ],
-    };
-  }
-
+  const { title, body, url, actionTitle } = REMINDER_COPY[kind](localDate);
   return {
-    title: 'Measurement Reminder',
-    body: "Today's Measurement Check-In is ready.",
-    url: `/body?segment=check-ins&checkInDate=${localDate}`,
-    tag: `measurement-reminder-${localDate}`,
+    title,
+    body,
+    url,
+    tag: `${kind}-reminder-${localDate}`,
     vibrate: [100, 50, 100],
     requireInteraction: true,
     actions: [
-      { action: 'open', title: 'Open Body Tracking' },
+      { action: 'open', title: actionTitle },
       { action: 'dismiss', title: 'Dismiss' },
     ],
   };
