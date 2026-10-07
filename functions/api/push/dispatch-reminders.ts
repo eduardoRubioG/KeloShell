@@ -3,7 +3,7 @@ import type {
   PushNotificationPayload,
   PushSubscriptionPayload,
 } from '../../../src/contracts/push';
-import { SourceSpreadsheetSchemaError } from '../../lib/config';
+import { SourceSpreadsheetSchemaError } from '../../lib/format-problems';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../../lib/google-sheets';
 import {
   evaluateReminders,

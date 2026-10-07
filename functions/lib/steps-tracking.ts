@@ -1,5 +1,6 @@
 import type { StepsResponse, DailyStepsRequest } from '../../src/contracts/steps';
-import { STEPS_SHEET_NAME, SourceSpreadsheetSchemaError } from './config';
+import { STEPS_SHEET_NAME } from './config';
+import { SourceSpreadsheetSchemaError } from './format-problems';
 
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 const WINDOW_DAYS = 30;

@@ -1,65 +1,30 @@
 import { describe, expect, it } from 'vitest';
 
+import { LiftLogConflictError } from '../lib/lift-log-errors';
+import { resolveCoachTemplate } from '../coach-templates/registry';
+import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
+import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 import {
-  LiftLogConflictError,
-  readTrainingWeeks,
-  SourceSpreadsheetSchemaError,
-  writeLiftLog,
-  SESSION_NAMES,
-  type TrainingWeeksGateway,
-} from './training-weeks';
+  fakeSpreadsheetOf,
+  overlayFormatted,
+  serialDate,
+  workoutSessionGrids,
+  DEFAULT_SESSION_TITLES,
+} from '../testing/fake-spreadsheet';
+import * as training from './training';
 
-const DAY = 86_400_000;
-const SHEETS_EPOCH = Date.UTC(1899, 11, 30);
-
-interface WeekFixture {
-  displayDate: string;
-  rawDate: string;
-  weight?: unknown;
-  sets?: unknown[];
-}
-
-interface BlockFixture {
-  liftName?: string;
-  progression?: string;
-  setCount?: number;
-  /** Raw value for the Sets cell; overrides setCount (e.g. a "2-3" range). */
-  setsCell?: unknown;
-  repTarget?: unknown;
-  formattedRepTarget?: string;
-  weeks: WeekFixture[];
-}
-
-class FixtureGateway implements TrainingWeeksGateway {
-  constructor(
-    private readonly grids: unknown[][][],
-    private readonly dates: unknown[][][]
-  ) {}
-
-  async readRanges(
-    _ranges: readonly string[],
-    option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
-  ): Promise<unknown[][][]> {
-    return option === 'UNFORMATTED_VALUE' ? this.grids : this.dates;
-  }
-
-  async writeRange(
-    sheetName: string,
-    range: string,
-    values: readonly unknown[]
-  ): Promise<void> {
-    const sheetIndex = SESSION_NAMES.indexOf(sheetName as (typeof SESSION_NAMES)[number]);
-    const { row, startColumn } = parseRange(range);
-    values.forEach((value, index) => {
-      this.grids[sheetIndex][row][startColumn + index] = value;
-      this.dates[sheetIndex][row][startColumn + index] = value;
-    });
-  }
-
-  async clearRange(sheetName: string, range: string): Promise<void> {
-    await this.writeRange(sheetName, range, ['', '', '', '', '']);
-  }
-}
+const template = resolveCoachTemplate('eduardo');
+const readTrainingWeeks = (gateway: SpreadsheetGateway) =>
+  training.readTrainingWeeks(gateway, template);
+const writeLiftLog = (
+  gateway: SpreadsheetGateway,
+  request: Parameters<typeof training.writeLiftLog>[2]
+) => training.writeLiftLog(gateway, template, request);
+const makeSheet = workoutSessionGrids;
+const readTrainingReport = (gateway: SpreadsheetGateway) =>
+  training.readTrainingReport(gateway, template);
+const gatewayFor = fakeSpreadsheetOf;
+const serial = serialDate;
 
 describe('readTrainingWeeks', () => {
   it('normalizes New Year rollover and derives complete and partial statuses', async () => {
@@ -242,7 +207,7 @@ describe('readTrainingWeeks', () => {
   });
 
   it('skips past weeks whose every session was at least touched, landing on the first untouched week', async () => {
-    const sheets = SESSION_NAMES.map(() =>
+    const sheets = DEFAULT_SESSION_TITLES.map(() =>
       makeSheet([
         {
           weeks: [
@@ -571,6 +536,24 @@ describe('readTrainingWeeks', () => {
     ).rejects.toBeInstanceOf(SourceSpreadsheetSchemaError);
   });
 
+  it('reports an unreadable-tabs problem when the gateway drops a grid', async () => {
+    const sheets = Array.from({ length: 4 }, () => makeSheet([{ weeks: [] }]));
+    const inner = gatewayFor(sheets);
+    const droppingGateway: SpreadsheetGateway = {
+      ...inner,
+      listSheetTitles: () => inner.listSheetTitles(),
+      readRanges: async (ranges, render) =>
+        (await inner.readRanges(ranges, render)).slice(1),
+    };
+
+    const error = await readTrainingWeeks(droppingGateway).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+    expect((error as SourceSpreadsheetSchemaError).problems).toMatchObject([
+      { code: 'unreadable-tabs', tab: null, cell: null },
+    ]);
+  });
+
   it('marks set counts above the sheet capacity unavailable', async () => {
     const sheets = Array.from({ length: 4 }, () =>
       makeSheet([
@@ -626,9 +609,9 @@ describe('readTrainingWeeks', () => {
       weekRow[col + 4] = 7;
     });
     grid[6] = weekRow;
-    const dates: unknown[][] = [[], [], [], [], [], [], ['6/28']];
+    const formatted = overlayFormatted(grid, [[], [], [], [], [], [], ['6/28']]);
 
-    const sheets = Array.from({ length: 4 }, () => ({ grid, dates }));
+    const sheets = Array.from({ length: 4 }, () => ({ cells: grid, formatted }));
     const response = await readTrainingWeeks(gatewayFor(sheets));
 
     expect(response.weeks[0].sessions[0].totalLifts).toBe(8);
@@ -731,81 +714,164 @@ describe('writeLiftLog', () => {
   });
 });
 
-function gatewayFor(
-  sheets: Array<{ grid: unknown[][]; dates: unknown[][] }>
-): FixtureGateway {
-  return new FixtureGateway(
-    sheets.map((sheet) => sheet.grid),
-    sheets.map((sheet) =>
-      sheet.grid.map((row, rowIndex) => {
-        const formatted = [...row];
-        for (const [columnIndex, value] of (
-          sheet.dates[rowIndex] ?? []
-        ).entries()) {
-          if (value !== undefined) {
-            formatted[columnIndex] = value;
-          }
-        }
-        return formatted;
-      })
-    )
-  );
-}
+describe('readTrainingReport', () => {
+  const goodWeeks = [{ displayDate: '6/28', rawDate: '2026-06-28' }];
+  const good = () => makeSheet([{ weeks: goodWeeks }]);
+  const four = (overrides: Record<number, ReturnType<typeof makeSheet>> = {}) =>
+    Array.from({ length: 4 }, (_, index) => overrides[index] ?? good());
+  const problemsOf = (report: { problems: readonly { code: string; tab: string | null; cell: string | null }[] }) =>
+    report.problems.map(({ code, tab, cell }) => ({ code, tab, cell }));
 
-function makeSheet(blocks: BlockFixture[]): {
-  grid: unknown[][];
-  dates: unknown[][];
-} {
-  const grid: unknown[][] = [];
-  const dates: unknown[][] = [];
+  it('reports a clean spreadsheet with discovered sessions and no problems', async () => {
+    const report = await readTrainingReport(gatewayFor(four()));
+    expect(report).toMatchObject({ ok: true, sessions: DEFAULT_SESSION_TITLES, problems: [] });
+  });
 
-  for (const block of blocks) {
-    const start = grid.length;
-    grid.push(['Lift', block.liftName ?? 'Test Lift']);
-    grid.push(['Progression', block.progression ?? 'Dynamic DP']);
-    grid.push(['Sets', block.setsCell ?? block.setCount ?? 3]);
-    grid.push(['Reps', block.repTarget ?? '6-8']);
-    grid.push(['Cue', 'Controlled reps']);
-    grid.push(['Week', 'Weight', 1, 2, 3, 4]);
-    dates.push(
-      [],
-      [],
-      [],
-      block.formattedRepTarget === undefined
-        ? []
-        : [undefined, block.formattedRepTarget],
-      [],
-      []
+  it('reports no Workout Sessions', async () => {
+    const report = await readTrainingReport(
+      gatewayFor([{ cells: [['Notes']] }], ['Notes'])
     );
+    expect(report.ok).toBe(false);
+    expect(problemsOf(report)).toEqual([
+      { code: 'no-workout-sessions', tab: null, cell: null },
+    ]);
+  });
 
-    for (const week of block.weeks) {
-      grid.push([
-        serial(week.rawDate),
-        week.weight ?? '',
-        ...(week.sets ?? []),
-      ]);
-      dates.push([week.displayDate]);
+  it('ignores a tab with no Lift row', async () => {
+    const report = await readTrainingReport(
+      gatewayFor([good(), { cells: [['Notes', 'x']] }, good()], ['Upper A', 'Notes', 'Lower A'])
+    );
+    expect(report).toMatchObject({ ok: true, sessions: ['Upper A', 'Lower A'], problems: [] });
+  });
+
+  it('reports a missing Week header with tab and cell, still discovering other tabs', async () => {
+    const broken = { cells: [['Lift', 'Squat'], ['Progression', 'x'], ['Sets', 3], ['Reps', '5']] };
+    const report = await readTrainingReport(gatewayFor(four({ 1: broken as never })));
+    expect(report.ok).toBe(false);
+    expect(report.sessions).toEqual(DEFAULT_SESSION_TITLES);
+    expect(problemsOf(report)).toEqual([
+      { code: 'missing-week-header', tab: 'Lower A', cell: 'A1' },
+    ]);
+    expect(report.problems[0].message).toContain('Lower A');
+  });
+
+  it('reports a missing program field', async () => {
+    const broken = {
+      cells: [['Lift', 'Squat'], ['Progression', 'x'], ['Reps', '5'], ['Week', 'Weight'], [serial('2026-06-28')]],
+      formatted: [['Lift', 'Squat'], ['Progression', 'x'], ['Reps', '5'], ['Week', 'Weight'], ['6/28']],
+    };
+    const report = await readTrainingReport(gatewayFor(four({ 0: broken })));
+    expect(report.ok).toBe(false);
+    expect(problemsOf(report)).toEqual([
+      { code: 'missing-program-field', tab: 'Upper A', cell: 'A1' },
+    ]);
+    expect(report.problems[0].message).toContain('Sets');
+  });
+
+  it('reports a session with no week rows', async () => {
+    const empty = makeSheet([{ weeks: [] }]);
+    const report = await readTrainingReport(gatewayFor(four({ 2: empty })));
+    expect(problemsOf(report)).toEqual([
+      { code: 'no-week-rows', tab: 'Upper B', cell: null },
+    ]);
+  });
+
+  it('reports an unreadable week date', async () => {
+    const sheet = makeSheet([{ weeks: goodWeeks }]);
+    sheet.cells[6] = [serial('2026-06-28'), ''];
+    sheet.formatted[6] = ['', ''];
+    sheet.cells[6][0] = 'oops';
+    sheet.formatted[6][0] = '';
+    const report = await readTrainingReport(gatewayFor(four({ 0: sheet })));
+    expect(problemsOf(report)).toEqual([
+      { code: 'unreadable-week-date', tab: 'Upper A', cell: 'A7' },
+    ]);
+  });
+
+  it('reports an invalid week date', async () => {
+    const sheet = makeSheet([
+      { weeks: [{ displayDate: '6/28', rawDate: '2026-06-28' }, { displayDate: 'soon', rawDate: '2026-07-05' }] },
+    ]);
+    const report = await readTrainingReport(gatewayFor(four({ 3: sheet })));
+    expect(report.ok).toBe(false);
+    expect(problemsOf(report)).toContainEqual({
+      code: 'invalid-week-date',
+      tab: 'Lower B',
+      cell: 'A8',
+    });
+  });
+
+  it('reports a duplicate week date', async () => {
+    const sheet = makeSheet([
+      { weeks: [goodWeeks[0], goodWeeks[0]] },
+    ]);
+    const report = await readTrainingReport(gatewayFor(four({ 0: sheet })));
+    expect(problemsOf(report)).toEqual([
+      { code: 'duplicate-week-date', tab: 'Upper A', cell: 'A8' },
+    ]);
+  });
+
+  it('reports mismatched week dates against the first session tab', async () => {
+    const other = makeSheet([{ weeks: [{ displayDate: '7/5', rawDate: '2026-07-05' }] }]);
+    const report = await readTrainingReport(gatewayFor(four({ 3: other })));
+    expect(report.ok).toBe(false);
+    expect(problemsOf(report)).toEqual([
+      { code: 'week-dates-mismatch', tab: 'Lower B', cell: 'A7' },
+    ]);
+  });
+
+  it('keeps a bad set count non-blocking: week unavailable, problem reported', async () => {
+    const bad = makeSheet([{ setsCell: '3-5', weeks: goodWeeks }]);
+    const report = await readTrainingReport(gatewayFor(four({ 1: bad })));
+    expect(report.ok).toBe(true);
+    if (report.ok) {
+      expect(report.trainingWeeks.weeks[0].availability).toBe('unavailable');
     }
-    if (grid.length === start) {
-      throw new Error('Fixture block was not created.');
+    expect(problemsOf(report)).toEqual([
+      { code: 'set-count-out-of-range', tab: 'Lower A', cell: 'B3' },
+    ]);
+  });
+
+  it('reports a missing Rep Target, non-blocking', async () => {
+    const bad = makeSheet([{ repTarget: '', weeks: goodWeeks }]);
+    const report = await readTrainingReport(gatewayFor(four({ 0: bad })));
+    expect(report.ok).toBe(true);
+    expect(problemsOf(report)).toEqual([
+      { code: 'lift-missing-rep-target', tab: 'Upper A', cell: 'B4' },
+    ]);
+  });
+
+  it('reports a lift with program fields but no name, non-blocking', async () => {
+    const bad = makeSheet([{ liftName: '', weeks: goodWeeks }]);
+    const report = await readTrainingReport(gatewayFor(four({ 0: bad })));
+    expect(report.ok).toBe(true);
+    if (report.ok) {
+      expect(report.trainingWeeks.weeks[0].availability).toBe('unavailable');
     }
-  }
+    expect(problemsOf(report)).toEqual([
+      { code: 'lift-missing-name', tab: 'Upper A', cell: 'B1' },
+    ]);
+  });
 
-  return { grid, dates };
-}
+  it('collects problems from multiple tabs together', async () => {
+    const noHeader = { cells: [['Lift', 'Squat']] };
+    const badSets = makeSheet([{ setsCell: 9, weeks: goodWeeks }]);
+    const report = await readTrainingReport(
+      gatewayFor(four({ 0: noHeader as never, 2: badSets }))
+    );
+    expect(report.ok).toBe(false);
+    expect(problemsOf(report)).toEqual([
+      { code: 'missing-week-header', tab: 'Upper A', cell: 'A1' },
+      { code: 'set-count-out-of-range', tab: 'Upper B', cell: 'B3' },
+    ]);
+  });
 
-function serial(isoDate: string): number {
-  return (Date.parse(`${isoDate}T00:00:00Z`) - SHEETS_EPOCH) / DAY;
-}
-
-function parseRange(range: string): { row: number; startColumn: number } {
-  const match = /^([A-Z]+)(\d+):[A-Z]+\d+$/.exec(range);
-  if (!match) {
-    throw new Error(`Unexpected range: ${range}`);
-  }
-  let column = 0;
-  for (const character of match[1]) {
-    column = column * 26 + character.charCodeAt(0) - 64;
-  }
-  return { row: Number(match[2]) - 1, startColumn: column - 1 };
-}
+  it('readTrainingWeeks throws a schema error carrying the problems', async () => {
+    const noHeader = { cells: [['Lift', 'Squat']] };
+    const error = await readTrainingWeeks(
+      gatewayFor(four({ 0: noHeader as never }))
+    ).catch((caught) => caught);
+    expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+    expect(error.problems).toMatchObject([{ code: 'missing-week-header', tab: 'Upper A', cell: 'A1' }]);
+  });
+});

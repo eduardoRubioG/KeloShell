@@ -1,7 +1,7 @@
 import type { ApiErrorResponse } from '../../src/contracts/training';
 import type { StepsResponse, DailyStepsRequest } from '../../src/contracts/steps';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
-import { SourceSpreadsheetSchemaError } from '../lib/config';
+import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import {
   StepsConflictError,
   writeDailySteps,

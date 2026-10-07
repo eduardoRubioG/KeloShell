@@ -1,5 +1,6 @@
 import type { PushNotificationPayload } from '../../src/contracts/push';
-import { BODYWEIGHT_SHEET_NAME, SourceSpreadsheetSchemaError } from './config';
+import { BODYWEIGHT_SHEET_NAME } from './config';
+import { SourceSpreadsheetSchemaError } from './format-problems';
 
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 const MONTHS = new Map(

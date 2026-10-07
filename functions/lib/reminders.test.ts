@@ -5,7 +5,7 @@ import {
   reminderNotification,
   type ReminderGateway,
 } from './reminders';
-import { SourceSpreadsheetSchemaError } from './config';
+import { SourceSpreadsheetSchemaError } from './format-problems';
 
 const SHEETS_EPOCH = Date.UTC(1899, 11, 30);
 const DAY = 86_400_000;

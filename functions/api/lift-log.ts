@@ -1,22 +1,18 @@
 import type {
   ApiErrorResponse,
   LiftLogRequest,
-  SessionName,
   TrainingWeeksResponse,
 } from '../../src/contracts/training';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
-import {
-  LiftLogConflictError,
-  SourceSpreadsheetSchemaError,
-  writeLiftLog,
-  type TrainingWeeksGateway,
-} from '../lib/training-weeks';
-import { SESSION_NAMES_BY_USER } from '../lib/config';
+import { resolveCoachTemplate } from '../coach-templates/registry';
+import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
+import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
+import { LiftLogConflictError, writeLiftLog } from '../services/training';
 import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
 
 type Env = UserResolutionEnv;
 
-type GatewayFactory = (credentials: GoogleSheetsCredentials) => TrainingWeeksGateway;
+type GatewayFactory = (credentials: GoogleSheetsCredentials) => SpreadsheetGateway;
 
 export const onRequest: PagesFunction<Env> = async (context) =>
   handleLiftLogRequest(context.request, context.env);
@@ -42,7 +38,7 @@ export async function handleLiftLogRequest(
   }
 
   const payload = await request.json().catch(() => null);
-  const liftLogRequest = parseLiftLogRequest(payload, SESSION_NAMES_BY_USER[userId]);
+  const liftLogRequest = parseLiftLogRequest(payload);
   if (!liftLogRequest) {
     return json({ error: 'A valid complete Lift Log is required.' }, 400);
   }
@@ -50,8 +46,8 @@ export async function handleLiftLogRequest(
   try {
     const response = await writeLiftLog(
       createGateway(credentials),
-      liftLogRequest,
-      SESSION_NAMES_BY_USER[userId]
+      resolveCoachTemplate(userId),
+      liftLogRequest
     );
     return json(response, 200);
   } catch (error) {
@@ -71,10 +67,7 @@ export async function handleLiftLogRequest(
   }
 }
 
-function parseLiftLogRequest(
-  value: unknown,
-  sessionNames: readonly string[]
-): LiftLogRequest | null {
+function parseLiftLogRequest(value: unknown): LiftLogRequest | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
@@ -83,7 +76,8 @@ function parseLiftLogRequest(
     (body.operation !== 'save' && body.operation !== 'clear') ||
     typeof body.weekId !== 'string' ||
     !/^\d{4}-\d{2}-\d{2}$/.test(body.weekId) ||
-    !isSessionName(body.session, sessionNames) ||
+    typeof body.session !== 'string' ||
+    body.session.length === 0 ||
     typeof body.liftId !== 'string' ||
     body.liftId.length === 0 ||
     typeof body.revision !== 'string' ||
@@ -121,14 +115,7 @@ function parseLiftLogRequest(
   };
 }
 
-function isSessionName(
-  value: unknown,
-  sessionNames: readonly string[]
-): value is SessionName {
-  return typeof value === 'string' && sessionNames.includes(value);
-}
-
-function defaultGatewayFactory(credentials: GoogleSheetsCredentials): TrainingWeeksGateway {
+function defaultGatewayFactory(credentials: GoogleSheetsCredentials): SpreadsheetGateway {
   return new GoogleSheetsClient(credentials);
 }
 

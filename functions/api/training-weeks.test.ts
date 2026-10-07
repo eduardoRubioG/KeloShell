@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { TrainingWeeksGateway } from '../lib/training-weeks';
+import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
+import {
+  FakeSpreadsheet,
+  fakeSpreadsheetOf,
+  workoutSessionGrids,
+} from '../testing/fake-spreadsheet';
 import { handleTrainingWeeksRequest } from './training-weeks';
 
 const configuredEnv = {
@@ -72,7 +77,7 @@ describe('GET /api/training-weeks', () => {
     const response = await handleTrainingWeeksRequest(
       new Request('http://localhost/api/training-weeks'),
       configuredEnv,
-      () => new ValidGateway()
+      () => sessionsSheet(['Upper A', 'Lower A', 'Upper B', 'Lower B'])
     );
 
     expect(response.status).toBe(200);
@@ -89,37 +94,89 @@ describe('GET /api/training-weeks', () => {
       ],
     });
   });
+
+  it('discovers a 4-session and a 3-session sheet in tab order', async () => {
+    expect(
+      await sessionNamesFor(sessionsSheet(['Upper A', 'Lower A', 'Upper B', 'Lower B']))
+    ).toEqual(['Upper A', 'Lower A', 'Upper B', 'Lower B']);
+    expect(await sessionNamesFor(sessionsSheet(['Full A', 'Full B', 'Full C']))).toEqual([
+      'Full A',
+      'Full B',
+      'Full C',
+    ]);
+  });
+
+  it('follows tab order as Session Order', async () => {
+    const sheet = sessionsSheet(['Upper A', 'Lower A', 'Upper B']);
+    sheet.reorder(['Lower A', 'Upper B', 'Upper A']);
+
+    expect(await sessionNamesFor(sheet)).toEqual(['Lower A', 'Upper B', 'Upper A']);
+  });
+
+  it('discovers a renamed Workout Session under its new name', async () => {
+    const sheet = sessionsSheet(['Upper A', 'Lower A']);
+    sheet.rename('Lower A', 'Legs');
+
+    expect(await sessionNamesFor(sheet)).toEqual(['Upper A', 'Legs']);
+  });
+
+  it('ignores tabs that are not Workout Sessions', async () => {
+    const sheet = new FakeSpreadsheet([
+      { title: 'Notes', cells: [['Remember to stretch']] },
+      { title: 'Upper A', ...grids() },
+      {
+        title: "Tracking '26",
+        cells: [
+          ['Date', 'Weight'],
+          [46201, 180],
+        ],
+      },
+      { title: 'Lower A', ...grids() },
+    ]);
+
+    expect(await sessionNamesFor(sheet)).toEqual(['Upper A', 'Lower A']);
+  });
 });
 
-class ThrowingGateway implements TrainingWeeksGateway {
-  async readRanges(): Promise<unknown[][][]> {
+function grids() {
+  return workoutSessionGrids([
+    {
+      weeks: [{ displayDate: '6/28', rawDate: '2026-06-28' }],
+    },
+  ]);
+}
+
+function sessionsSheet(titles: readonly string[]): FakeSpreadsheet {
+  return fakeSpreadsheetOf(
+    titles.map(() => grids()),
+    titles
+  );
+}
+
+async function sessionNamesFor(gateway: SpreadsheetGateway): Promise<string[]> {
+  const response = await handleTrainingWeeksRequest(
+    new Request('http://localhost/api/training-weeks'),
+    configuredEnv,
+    () => gateway
+  );
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as {
+    weeks: Array<{ sessions: Array<{ name: string }> }>;
+  };
+  return body.weeks[0].sessions.map((session) => session.name);
+}
+
+class ThrowingGateway extends FakeSpreadsheet {
+  constructor() {
+    super([]);
+  }
+  async listSheetTitles(): Promise<string[]> {
     throw new Error('sensitive upstream detail');
   }
 }
 
-class SchemaErrorGateway implements TrainingWeeksGateway {
-  async readRanges(): Promise<unknown[][][]> {
-    return [[], [], [], []];
-  }
-}
-
-class ValidGateway implements TrainingWeeksGateway {
-  async readRanges(
-    _ranges: readonly string[],
-    option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
-  ): Promise<unknown[][][]> {
-    const grid = [
-      ['Lift', 'Test Lift'],
-      ['Progression', 'Dynamic DP'],
-      ['Sets', 3],
-      ['Reps', '6-8'],
-      ['Cue', 'Controlled reps'],
-      ['Week', 'Weight', 1, 2, 3, 4],
-      [46201],
-    ];
-    const formattedGrid = grid.map((row) => [...row]);
-    formattedGrid[6][0] = '6/28';
-    const sheet = option === 'UNFORMATTED_VALUE' ? grid : formattedGrid;
-    return [sheet, sheet, sheet, sheet];
+class SchemaErrorGateway extends FakeSpreadsheet {
+  constructor() {
+    super([{ title: 'Upper A', cells: [['Lift', 'Squat']] }]);
   }
 }
