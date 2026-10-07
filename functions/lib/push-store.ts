@@ -1,5 +1,5 @@
 import type { PushSubscriptionPayload } from '../../src/contracts/push';
-import type { ReminderKind } from './reminders';
+import type { ReminderKind } from '../services/reminders';
 import type { UserId } from './users';
 
 const REMINDER_DELIVERY_TTL_SECONDS = 45 * 24 * 60 * 60;
