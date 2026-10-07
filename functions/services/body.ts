@@ -1,4 +1,8 @@
 import type {
+  MeasurementCheckInSaveRequest,
+  MeasurementsResponse,
+} from '../../src/contracts/measurements';
+import type {
   BodyweightResponse,
   DailyBodyweightEntry,
   DailyBodyweightRequest,
@@ -7,7 +11,7 @@ import { FORMAT_MESSAGE, SourceSpreadsheetSchemaError, type FormatProblem } from
 import type { CoachTemplate, TrackingReport } from '../coach-templates/types';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 
-export { BodyweightConflictError } from '../lib/body-errors';
+export { BodyweightConflictError, MeasurementCheckInConflictError } from '../lib/body-errors';
 
 // Problems are logged here, not in the adapter, so they surface in the
 // Cloudflare logs whichever Coach Template reported them.
@@ -54,6 +58,32 @@ export async function writeDailyBodyweight(
   request: DailyBodyweightRequest
 ): Promise<BodyweightResponse> {
   const result = await template.tracking.writeDailyBodyweight(gateway, request);
+  if (!result.ok) {
+    logProblems(result.problems);
+    throw new SourceSpreadsheetSchemaError(FORMAT_MESSAGE, result.problems);
+  }
+  return result.response;
+}
+
+/** Measurement Check-Ins from every Tracking tab, each dated within its own tab's year. */
+export async function readMeasurements(
+  gateway: SpreadsheetGateway,
+  template: CoachTemplate
+): Promise<MeasurementsResponse> {
+  const report = await template.tracking.readMeasurements(gateway);
+  logProblems(report.problems);
+  if (!report.ok) {
+    throw new SourceSpreadsheetSchemaError(FORMAT_MESSAGE, report.problems);
+  }
+  return report.response;
+}
+
+export async function writeMeasurementCheckIn(
+  gateway: SpreadsheetGateway,
+  template: CoachTemplate,
+  request: MeasurementCheckInSaveRequest
+): Promise<MeasurementsResponse> {
+  const result = await template.tracking.writeMeasurementCheckIn(gateway, request);
   if (!result.ok) {
     logProblems(result.problems);
     throw new SourceSpreadsheetSchemaError(FORMAT_MESSAGE, result.problems);

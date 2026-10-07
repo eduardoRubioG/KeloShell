@@ -5,16 +5,14 @@ import type {
 } from '../../src/contracts/measurements';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
 import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
-import {
-  MeasurementCheckInConflictError,
-  saveMeasurementCheckIn,
-  type MeasurementTrackingGateway,
-} from '../lib/measurement-tracking';
+import { resolveCoachTemplate } from '../coach-templates/registry';
+import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
+import { MeasurementCheckInConflictError, writeMeasurementCheckIn } from '../services/body';
 import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
 
 type Env = UserResolutionEnv;
 
-type GatewayFactory = (credentials: GoogleSheetsCredentials) => MeasurementTrackingGateway;
+type GatewayFactory = (credentials: GoogleSheetsCredentials) => SpreadsheetGateway;
 
 export const onRequest: PagesFunction<Env> = async (context) =>
   handleMeasurementCheckInRequest(context.request, context.env);
@@ -48,8 +46,9 @@ export async function handleMeasurementCheckInRequest(
   }
 
   try {
-    const response = await saveMeasurementCheckIn(
+    const response = await writeMeasurementCheckIn(
       createGateway(credentials),
+      resolveCoachTemplate(userId),
       checkInRequest
     );
     return json(response, 200);
@@ -112,7 +111,7 @@ function parseMeasurementCheckInSaveRequest(
 
 function defaultGatewayFactory(
   credentials: GoogleSheetsCredentials
-): MeasurementTrackingGateway {
+): SpreadsheetGateway {
   return new GoogleSheetsClient(credentials);
 }
 

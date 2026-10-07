@@ -2,15 +2,14 @@ import type { ApiErrorResponse } from '../../src/contracts/training';
 import type { MeasurementsResponse } from '../../src/contracts/measurements';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
 import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
-import {
-  readMeasurements,
-  type MeasurementTrackingGateway,
-} from '../lib/measurement-tracking';
+import { resolveCoachTemplate } from '../coach-templates/registry';
+import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
+import { readMeasurements } from '../services/body';
 import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
 
 type Env = UserResolutionEnv;
 
-type GatewayFactory = (credentials: GoogleSheetsCredentials) => MeasurementTrackingGateway;
+type GatewayFactory = (credentials: GoogleSheetsCredentials) => SpreadsheetGateway;
 
 export const onRequest: PagesFunction<Env> = async (context) =>
   handleMeasurementsRequest(context.request, context.env);
@@ -38,7 +37,10 @@ export async function handleMeasurementsRequest(
   }
 
   try {
-    const response = await readMeasurements(createGateway(credentials));
+    const response = await readMeasurements(
+      createGateway(credentials),
+      resolveCoachTemplate(userId)
+    );
     return json(response, 200);
   } catch (error) {
     if (error instanceof SourceSpreadsheetSchemaError) {
@@ -53,7 +55,7 @@ export async function handleMeasurementsRequest(
 
 function defaultGatewayFactory(
   credentials: GoogleSheetsCredentials
-): MeasurementTrackingGateway {
+): SpreadsheetGateway {
   return new GoogleSheetsClient(credentials);
 }
 

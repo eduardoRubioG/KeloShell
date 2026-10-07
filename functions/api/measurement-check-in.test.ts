@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import {
-  readMeasurements,
-  type MeasurementTrackingGateway,
-} from '../lib/measurement-tracking';
+import { coachPartnerTraining } from '../coach-templates/coach-partner/training';
+import { coachPartnerTracking } from '../coach-templates/coach-partner/tracking';
+import { readMeasurements } from '../services/body';
+import { FakeSpreadsheet, trackingTabGrid } from '../testing/fake-spreadsheet';
 import { handleMeasurementCheckInRequest } from './measurement-check-in';
 
 const configuredEnv = {
@@ -44,19 +44,19 @@ describe('PUT /api/measurement-check-in', () => {
   });
 
   it('returns a conflict when the revision is stale', async () => {
-    const gateway = new ValidMeasurementGateway();
+    const sheet = fakeSheet();
     const response = await handleMeasurementCheckInRequest(
       jsonRequest({ date: '2026-01-01', revision: 'stale', values: { waist: 33 } }),
       configuredEnv,
-      () => gateway
+      () => sheet
     );
     expect(response.status).toBe(409);
   });
 
-  it('saves partial fields and returns the updated response', async () => {
-    const gateway = new ValidMeasurementGateway();
-    const initial = await readMeasurements(gateway);
-    const checkIn = initial.checkIns[0];
+  it('saves partial fields into the tab the check-in was read from', async () => {
+    const sheet = fakeSheet();
+    const initial = await readMeasurements(sheet, template);
+    const checkIn = initial.checkIns.find((entry) => entry.date === '2027-01-01')!;
 
     const response = await handleMeasurementCheckInRequest(
       jsonRequest({
@@ -65,7 +65,7 @@ describe('PUT /api/measurement-check-in', () => {
         values: { waist: 33, chest: 44 },
       }),
       configuredEnv,
-      () => gateway
+      () => sheet
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
@@ -76,60 +76,55 @@ describe('PUT /api/measurement-check-in', () => {
       status: 'partial',
       values: { waist: '33', chest: '44', neck: null },
     });
+    const [written] = await sheet.readRanges(["'Tracking ''27'!H3:I3"], 'UNFORMATTED_VALUE');
+    expect(written[0]).toEqual([33, 44]);
+    const [other] = await sheet.readRanges(["'Tracking ''26'!H3:I3"], 'UNFORMATTED_VALUE');
+    expect(other[0] ?? []).toEqual([32, 42]);
+  });
+
+  it('returns 422 when the date is duplicated across Tracking tabs', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const sheet = new FakeSpreadsheet([
+      tab("Tracking '26", '2026-12-31'),
+      tab("Tracking '27", '2026-12-31'),
+    ]);
+    const response = await handleMeasurementCheckInRequest(
+      jsonRequest({ date: '2026-12-01', revision: 'whatever', values: { waist: 33 } }),
+      configuredEnv,
+      () => sheet
+    );
+    expect(response.status).toBe(422);
+  });
+
+  it('returns 400 for an unknown measurement field', async () => {
+    const sheet = fakeSheet();
+    const { checkIns } = await readMeasurements(sheet, template);
+    const response = await handleMeasurementCheckInRequest(
+      jsonRequest({ date: checkIns[0].date, revision: checkIns[0].revision, values: { hips: 40 } }),
+      configuredEnv,
+      () => sheet
+    );
+    expect(response.status).toBe(400);
   });
 });
 
-class ValidMeasurementGateway implements MeasurementTrackingGateway {
-  private raw: unknown[][];
-  private fmt: unknown[][];
+const template = { training: coachPartnerTraining, tracking: coachPartnerTracking };
 
-  constructor() {
-    this.raw = [
-      [],
-      [],
-      [],
-      ['', 'Mandatory', '', '', 'Recommended'],
-      ['Month', 'Waist', 'Chest', 'Neck'],
-      ['January 1st', '', '', ''],
-    ];
-    this.fmt = [
-      [],
-      [],
-      [],
-      ['', 'Mandatory', '', '', 'Recommended'],
-      ['Month', 'Waist', 'Chest', 'Neck'],
-      ['January 1st', '', '', ''],
-    ];
-  }
+function tab(title: string, firstDate: string, january: (number | null)[] = [null, null, null]) {
+  return {
+    title,
+    ...trackingTabGrid([[firstDate, 225]], {
+      fields: ['Waist', 'Chest', 'Neck'],
+      checkIns: [[firstDate.endsWith('-12-31') ? 'December 1st' : 'January 1st', january]],
+    }),
+  };
+}
 
-  async readRanges(
-    _ranges: readonly string[],
-    option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
-  ): Promise<unknown[][][]> {
-    return [option === 'UNFORMATTED_VALUE' ? this.raw : this.fmt];
-  }
-
-  async writeRange(
-    _sheetName: string,
-    range: string,
-    values: readonly unknown[]
-  ): Promise<void> {
-    const match = /^([A-Z]+)(\d+)$/.exec(range);
-    if (!match) {
-      return;
-    }
-    const columnLetters = match[1];
-    const row = Number(match[2]) - 1;
-    let column = 0;
-    for (const letter of columnLetters) {
-      column = column * 26 + (letter.charCodeAt(0) - 64);
-    }
-    const gOffset = column - 7;
-    values.forEach((value, index) => {
-      this.raw[row][gOffset + index] = value;
-      this.fmt[row][gOffset + index] = String(value);
-    });
-  }
+function fakeSheet(): FakeSpreadsheet {
+  return new FakeSpreadsheet([
+    tab("Tracking '26", '2026-01-01', [32, 42, 15]),
+    tab("Tracking '27", '2027-01-01'),
+  ]);
 }
 
 function jsonRequest(body: unknown): Request {
