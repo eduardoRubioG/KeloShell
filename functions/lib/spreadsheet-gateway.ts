@@ -14,7 +14,11 @@ export interface SpreadsheetGateway {
   clearRange(sheetName: string, range: string): Promise<void>;
 }
 
-/** An A1 range on a tab, quoting the tab name (`'Tracking ''26'!A:G`). */
-export function tabRange(tab: string, range: string): string {
-  return `'${tab.replace(/'/g, "''")}'!${range}`;
+/**
+ * An A1 range on a tab, quoting the tab name (`'Tracking ''26'!A:G`). Without a
+ * range it is the bare quoted title, which Sheets reads as every used cell.
+ */
+export function tabRange(tab: string, range?: string): string {
+  const quoted = `'${tab.replace(/'/g, "''")}'`;
+  return range === undefined ? quoted : `${quoted}!${range}`;
 }

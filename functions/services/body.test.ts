@@ -433,6 +433,24 @@ describe('Body service', () => {
       expect(response.unitLabel).toBe('in');
     });
 
+    it('lists a Measurement Field past column Z', async () => {
+      const wide = Array.from({ length: 30 }, (_, index) => `Field ${index + 1}`);
+      const sheet = new FakeSpreadsheet([
+        {
+          title: "Tracking '26",
+          ...trackingTabGrid([['2026-03-01', 225]], {
+            fields: wide,
+            checkIns: [['March 1st', wide.map((_, index) => index + 1)]],
+          }),
+        },
+      ]);
+      const response = await readMeasurements(sheet, template);
+      expect(response.fields).toHaveLength(30);
+      expect(response.fields[29]).toEqual({ id: 'field-30', label: 'Field 30' });
+      expect(response.checkIns[0].values['field-30']).toBe('30');
+      expect(response.checkIns[0].status).toBe('complete');
+    });
+
     it('treats formula errors and blank cells as no value', async () => {
       const sheet = new FakeSpreadsheet([
         withCheckIns("Tracking '26", [['2026-03-01', 225]], [['March 1st', ['#DIV/0!' as unknown as number, null]]]),

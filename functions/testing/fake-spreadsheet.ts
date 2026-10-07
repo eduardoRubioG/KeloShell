@@ -113,11 +113,20 @@ interface Area {
 }
 
 function parseQualifiedRange(range: string): { title: string; area: Area } {
-  const match = /^'((?:[^']|'')+)'!(.+)$/.exec(range);
+  const match = /^'((?:[^']|'')+)'(?:!(.+))?$/.exec(range);
   if (!match) {
     throw new Error(`Unexpected range: ${range}`);
   }
-  return { title: match[1].replace(/''/g, "'"), area: parseArea(match[2]) };
+  // A bare tab title is the whole tab, as in the Sheets API.
+  const area = match[2]
+    ? parseArea(match[2])
+    : {
+        firstRow: 0,
+        lastRow: Number.MAX_SAFE_INTEGER,
+        firstColumn: 0,
+        lastColumn: Number.MAX_SAFE_INTEGER,
+      };
+  return { title: match[1].replace(/''/g, "'"), area };
 }
 
 /** Parses `A:CF`, `B7:F7` or `B7` (1-based rows, optional) into 0-based bounds. */

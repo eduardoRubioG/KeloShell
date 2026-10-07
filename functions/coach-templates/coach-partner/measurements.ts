@@ -5,6 +5,7 @@ import type {
 } from '../../../src/contracts/measurements';
 import type { FormatProblem } from '../../lib/format-problems';
 import type { MeasurementsReport } from '../types';
+import { MONTH_COLUMN, type TrackingTab } from './tracking-tab';
 import { cellText, displayCell, isPositiveDecimal, serialDateToUtc, formatIsoDate, stableHash } from './cells';
 
 const MONTHS = new Map(
@@ -23,19 +24,6 @@ const MONTHS = new Map(
     'december',
   ].map((month, index) => [month, index + 1])
 );
-
-/** A Tracking tab as the Measurement Check-In parser needs to see it. */
-export interface MeasurementTabInput {
-  title: string;
-  /** 0-based row of the Month header. */
-  monthHeaderRow: number;
-  /** 0-based column of the Month header. */
-  monthColumn: number;
-  rawRows: readonly unknown[][];
-  formattedRows: readonly unknown[][];
-  /** The tab's first Date (YYYY-MM-DD); anchors the yearless Month labels. */
-  firstDate: string | null;
-}
 
 interface ParsedField extends MeasurementField {
   columnIndex: number;
@@ -64,7 +52,7 @@ export interface CheckInLocation {
 
 /** Every tab's check-in dated `date`, with the cells to write; more than one means a duplicate. */
 export function locateMeasurementCheckIns(
-  tabs: readonly MeasurementTabInput[],
+  tabs: readonly TrackingTab[],
   date: string
 ): CheckInLocation[] {
   const found: CheckInLocation[] = [];
@@ -99,7 +87,7 @@ export function duplicateMeasurementDateProblem(date: string): FormatProblem {
 }
 
 export function buildMeasurementsReport(
-  tabs: readonly MeasurementTabInput[]
+  tabs: readonly TrackingTab[]
 ): MeasurementsReport {
   const problems: FormatProblem[] = [];
   const parsed: ParsedTab[] = [];
@@ -170,16 +158,16 @@ export function buildMeasurementsReport(
 }
 
 function parseMeasurementTab(
-  tab: MeasurementTabInput
+  tab: TrackingTab
 ): ParsedTab | { problem: FormatProblem } {
   const headerRow = tab.rawRows[tab.monthHeaderRow] ?? [];
-  const fields = parseFields(headerRow, tab.monthColumn);
+  const fields = parseFields(headerRow);
   if (fields.length === 0) {
     return {
       problem: {
         code: 'missing-measurement-fields',
         tab: tab.title,
-        cell: `${columnLetter(tab.monthColumn)}${tab.monthHeaderRow + 1}`,
+        cell: `${columnLetter(MONTH_COLUMN)}${tab.monthHeaderRow + 1}`,
         message: `The "${tab.title}" tab has no Measurement Fields next to its Month header.`,
       },
     };
@@ -187,15 +175,17 @@ function parseMeasurementTab(
 
   const rows: { monthDay: string; rowIndex: number }[] = [];
   for (let rowIndex = tab.monthHeaderRow + 1; rowIndex < tab.rawRows.length; rowIndex += 1) {
-    const monthDay = measurementMonthDay(tab.rawRows[rowIndex]?.[tab.monthColumn]);
+    const monthDay = measurementMonthDay(tab.rawRows[rowIndex]?.[MONTH_COLUMN]);
     if (monthDay) {
       rows.push({ monthDay, rowIndex });
     }
   }
 
+  // The tab's first Date anchors the yearless Month labels.
+  const firstDate = tab.entries[0]?.entry.date ?? null;
   const isoDates = anchorMonthDays(
     rows.map((row) => row.monthDay),
-    tab.firstDate ? Number(tab.firstDate.slice(0, 4)) : null
+    firstDate ? Number(firstDate.slice(0, 4)) : null
   );
   if (rows.length > 0 && !isoDates) {
     return {
@@ -224,7 +214,7 @@ function parseMeasurementTab(
     return {
       row: rowIndex + 1,
       date: isoDate,
-      label: displayCell(formatted[tab.monthColumn]) ?? monthDay,
+      label: displayCell(formatted[MONTH_COLUMN]) ?? monthDay,
       status: deriveCheckInStatus(values, fields),
       values,
       revision: stableHash(
@@ -236,7 +226,7 @@ function parseMeasurementTab(
   return {
     title: tab.title,
     fields,
-    unitLabel: findUnitLabel(tab.rawRows.slice(0, tab.monthHeaderRow), tab.monthColumn),
+    unitLabel: findUnitLabel(tab.rawRows.slice(0, tab.monthHeaderRow)),
     checkIns,
   };
 }
@@ -252,9 +242,9 @@ function deriveCheckInStatus(
   return filled === fields.length ? 'complete' : 'partial';
 }
 
-function parseFields(headerRow: readonly unknown[], monthColumn: number): ParsedField[] {
+function parseFields(headerRow: readonly unknown[]): ParsedField[] {
   const fields: ParsedField[] = [];
-  for (let columnIndex = monthColumn + 1; columnIndex < headerRow.length; columnIndex += 1) {
+  for (let columnIndex = MONTH_COLUMN + 1; columnIndex < headerRow.length; columnIndex += 1) {
     const label = cellText(headerRow[columnIndex]);
     if (!label) {
       break;
@@ -292,9 +282,9 @@ function anchorMonthDays(
   });
 }
 
-function findUnitLabel(rows: readonly unknown[][], monthColumn: number): string {
+function findUnitLabel(rows: readonly unknown[][]): string {
   for (const row of rows) {
-    for (let columnIndex = monthColumn; columnIndex < row.length; columnIndex += 1) {
+    for (let columnIndex = MONTH_COLUMN; columnIndex < row.length; columnIndex += 1) {
       const text = cellText(row[columnIndex]).toLowerCase();
       if (text === 'units' || text === 'unit') {
         const next = cellText(row[columnIndex + 1]);

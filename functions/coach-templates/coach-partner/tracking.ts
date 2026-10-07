@@ -17,8 +17,8 @@ import {
   buildMeasurementsReport,
   duplicateMeasurementDateProblem,
   locateMeasurementCheckIns,
-  type MeasurementTabInput,
 } from './measurements';
+import { MONTH_COLUMN, type TrackingEntry, type TrackingTab } from './tracking-tab';
 import {
   cellText,
   displayCell,
@@ -32,25 +32,6 @@ import {
 // A Tracking tab is found by structure: a Date/Weight header row in columns
 // A:B and a Month header somewhere in column G (the Measurement Check-In
 // section, which can sit in a different row).
-const TRACKING_RANGE = 'A:Z';
-const MONTH_COLUMN = 6;
-
-interface TrackingEntry {
-  entry: DailyBodyweightEntry;
-  tab: string;
-  cell: string;
-  /** 1-based sheet row of the entry. */
-  row: number;
-}
-
-interface TrackingTab {
-  title: string;
-  entries: TrackingEntry[];
-  /** 0-based row of the Month header. */
-  monthHeaderRow: number;
-  rawRows: readonly unknown[][];
-  formattedRows: readonly unknown[][];
-}
 
 export const coachPartnerTracking: TrackingTemplate = {
   readTracking,
@@ -72,7 +53,7 @@ async function discoverTrackingTabs(
   gateway: SpreadsheetGateway
 ): Promise<TrackingTab[]> {
   const titles = await gateway.listSheetTitles();
-  const ranges = titles.map((title) => tabRange(title, TRACKING_RANGE));
+  const ranges = titles.map((title) => tabRange(title));
   const unformatted = ranges.length
     ? await gateway.readRanges(ranges, 'UNFORMATTED_VALUE')
     : [];
@@ -159,18 +140,7 @@ function duplicateProblems(date: string, found: TrackingEntry[]): FormatProblem[
 async function readMeasurements(
   gateway: SpreadsheetGateway
 ): Promise<MeasurementsReport> {
-  return buildMeasurementsReport(measurementInputs(await discoverTrackingTabs(gateway)));
-}
-
-function measurementInputs(tabs: readonly TrackingTab[]): MeasurementTabInput[] {
-  return tabs.map((tab) => ({
-    title: tab.title,
-    monthHeaderRow: tab.monthHeaderRow,
-    monthColumn: MONTH_COLUMN,
-    rawRows: tab.rawRows,
-    formattedRows: tab.formattedRows,
-    firstDate: tab.entries[0]?.entry.date ?? null,
-  }));
+  return buildMeasurementsReport(await discoverTrackingTabs(gateway));
 }
 
 async function writeMeasurementCheckIn(
@@ -178,7 +148,7 @@ async function writeMeasurementCheckIn(
   request: MeasurementCheckInSaveRequest
 ): Promise<MeasurementCheckInWriteResult> {
   const found = locateMeasurementCheckIns(
-    measurementInputs(await discoverTrackingTabs(gateway)),
+    await discoverTrackingTabs(gateway),
     request.date
   );
   if (found.length === 0) {
