@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { BodyTrackingGateway } from '../lib/body-tracking';
-import { readBodyweight } from '../lib/body-tracking';
+import { FakeSpreadsheet, trackingTabGrid } from '../testing/fake-spreadsheet';
+import { coachPartnerTraining } from '../coach-templates/coach-partner/training';
+import { coachPartnerTracking } from '../coach-templates/coach-partner/tracking';
+import { readBodyweight } from '../services/body';
 import { handleDailyBodyweightRequest } from './daily-bodyweight';
 
 const configuredEnv = {
@@ -11,10 +13,16 @@ const configuredEnv = {
   LOCAL_AUTH_BYPASS: 'true',
 };
 
-const SHEETS_EPOCH = Date.UTC(1899, 11, 30);
-const DAY = 86_400_000;
-function serial(isoDate: string): number {
-  return (Date.parse(`${isoDate}T00:00:00Z`) - SHEETS_EPOCH) / DAY;
+const template = { training: coachPartnerTraining, tracking: coachPartnerTracking };
+
+const tab = (title: string, rows: [string, number | null][]) => ({
+  title,
+  ...trackingTabGrid(rows),
+});
+
+async function revisionOf(sheet: FakeSpreadsheet, date: string): Promise<string> {
+  const { entries } = await readBodyweight(sheet, template, date);
+  return entries.find((e) => e.date === date)!.revision;
 }
 
 describe('PUT /api/daily-bodyweight', () => {
@@ -52,86 +60,57 @@ describe('PUT /api/daily-bodyweight', () => {
   });
 
   it('returns a conflict when the revision is stale', async () => {
-    const gateway = new ValidBodyweightGateway();
+    const sheet = new FakeSpreadsheet([tab("Tracking '26", [['2026-06-29', null]])]);
     const response = await handleDailyBodyweightRequest(
       jsonRequest({ operation: 'clear', date: '2026-06-29', revision: 'stale' }),
       configuredEnv,
-      () => gateway
+      () => sheet
     );
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ error: expect.any(String) });
   });
 
-  it('saves and returns the updated response', async () => {
-    const gateway = new ValidBodyweightGateway();
-    const initial = await readBodyweight(gateway);
-    const entry = initial.entries[0];
-
+  it('saves into the Tracking tab holding the date and returns the updated response', async () => {
+    const sheet = new FakeSpreadsheet([
+      tab("Tracking '26", [['2026-12-31', null]]),
+      tab("Tracking '27", [['2027-01-01', null]]),
+    ]);
     const response = await handleDailyBodyweightRequest(
       jsonRequest({
         operation: 'save',
-        date: '2026-06-29',
+        date: '2027-01-01',
         weight: 226,
-        revision: entry.revision,
+        revision: await revisionOf(sheet, '2027-01-01'),
       }),
       configuredEnv,
-      () => gateway
+      () => sheet
     );
     expect(response.status).toBe(200);
-    const body = await response.json() as { entries: Array<{ date: string; hasValue: boolean }> };
-    const updated = body.entries.find((e) => e.date === '2026-06-29');
-    expect(updated?.hasValue).toBe(true);
+    const body = (await response.json()) as {
+      entries: Array<{ date: string; hasValue: boolean }>;
+    };
+    expect(body.entries.find((e) => e.date === '2027-01-01')?.hasValue).toBe(true);
+    const [rows26, rows27] = await Promise.all([
+      sheet.readRanges(["'Tracking ''26'!B3"], 'UNFORMATTED_VALUE'),
+      sheet.readRanges(["'Tracking ''27'!B3"], 'UNFORMATTED_VALUE'),
+    ]);
+    expect(rows26[0][0][0]).toBe('');
+    expect(rows27[0][0][0]).toBe(226);
+  });
+
+  it('returns 422 when the date is duplicated across Tracking tabs', async () => {
+    const sheet = new FakeSpreadsheet([
+      tab("Tracking '26", [['2026-12-31', 224.5]]),
+      tab("Tracking '27", [['2026-12-31', 224.0]]),
+    ]);
+    const response = await handleDailyBodyweightRequest(
+      jsonRequest({ operation: 'save', date: '2026-12-31', weight: 230, revision: 'rev' }),
+      configuredEnv,
+      () => sheet
+    );
+    expect(response.status).toBe(422);
   });
 });
-
-class ValidBodyweightGateway implements BodyTrackingGateway {
-  private raw: unknown[][];
-  private fmt: unknown[][];
-
-  constructor() {
-    this.raw = [
-      [], [], [], [], [],
-      ['Date', 'Weight'],
-      [serial('2026-06-29'), ''],
-    ];
-    this.fmt = [
-      [], [], [], [], [],
-      ['Date', 'Weight'],
-      ['6/29', ''],
-    ];
-  }
-
-  async readRanges(
-    _ranges: readonly string[],
-    option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
-  ): Promise<unknown[][][]> {
-    return [option === 'UNFORMATTED_VALUE' ? this.raw : this.fmt];
-  }
-
-  async writeRange(
-    _sheetName: string,
-    range: string,
-    values: readonly unknown[]
-  ): Promise<void> {
-    const match = /B(\d+)/.exec(range);
-    if (match) {
-      const row = Number(match[1]) - 1;
-      values.forEach((value, index) => {
-        this.raw[row][1 + index] = value;
-        this.fmt[row][1 + index] = String(value);
-      });
-    }
-  }
-
-  async clearRange(_sheetName: string, range: string): Promise<void> {
-    const match = /B(\d+)/.exec(range);
-    if (match) {
-      const row = Number(match[1]) - 1;
-      this.raw[row][1] = '';
-      this.fmt[row][1] = '';
-    }
-  }
-}
 
 function jsonRequest(body: unknown): Request {
   return new Request('http://localhost/api/daily-bodyweight', {

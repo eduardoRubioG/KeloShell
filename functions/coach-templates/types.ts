@@ -1,4 +1,8 @@
-import type { DailyBodyweightEntry } from '../../src/contracts/body';
+import type {
+  BodyweightResponse,
+  DailyBodyweightEntry,
+  DailyBodyweightRequest,
+} from '../../src/contracts/body';
 import type {
   LiftLogRequest,
   TrainingWeeksResponse,
@@ -50,6 +54,16 @@ export interface TrackingTemplate {
     gateway: SpreadsheetGateway,
     today: string
   ): Promise<TrackingReport>;
+  /**
+   * Saves or clears Daily Bodyweight for an existing date, whichever Tracking
+   * tab holds it. Throws BodyweightConflictError for a stale revision or a
+   * date not in the Source Spreadsheet, and SourceSpreadsheetSchemaError when
+   * the date is duplicated across tabs.
+   */
+  writeDailyBodyweight(
+    gateway: SpreadsheetGateway,
+    request: DailyBodyweightRequest
+  ): Promise<BodyweightResponse>;
 }
 
 export interface CoachTemplate {

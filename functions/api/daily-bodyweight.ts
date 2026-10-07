@@ -2,16 +2,14 @@ import type { ApiErrorResponse } from '../../src/contracts/training';
 import type { BodyweightResponse, DailyBodyweightRequest } from '../../src/contracts/body';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
 import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
-import {
-  BodyweightConflictError,
-  writeDailyBodyweight,
-  type BodyTrackingGateway,
-} from '../lib/body-tracking';
+import { resolveCoachTemplate } from '../coach-templates/registry';
+import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
+import { BodyweightConflictError, writeDailyBodyweight } from '../services/body';
 import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
 
 type Env = UserResolutionEnv;
 
-type GatewayFactory = (credentials: GoogleSheetsCredentials) => BodyTrackingGateway;
+type GatewayFactory = (credentials: GoogleSheetsCredentials) => SpreadsheetGateway;
 
 export const onRequest: PagesFunction<Env> = async (context) =>
   handleDailyBodyweightRequest(context.request, context.env);
@@ -47,6 +45,7 @@ export async function handleDailyBodyweightRequest(
   try {
     const response = await writeDailyBodyweight(
       createGateway(credentials),
+      resolveCoachTemplate(userId),
       bodyweightRequest
     );
     return json(response, 200);
@@ -101,7 +100,7 @@ function parseDailyBodyweightRequest(
   };
 }
 
-function defaultGatewayFactory(credentials: GoogleSheetsCredentials): BodyTrackingGateway {
+function defaultGatewayFactory(credentials: GoogleSheetsCredentials): SpreadsheetGateway {
   return new GoogleSheetsClient(credentials);
 }
 

@@ -6,10 +6,19 @@ import type { CoachTemplate } from '../coach-templates/types';
 import {
   FakeSpreadsheet,
   trackingTabGrid,
+  serialDate,
   workoutSessionGrids,
 } from '../testing/fake-spreadsheet';
-import { readBodyweight, readTodayBodyweight, readTrackingReport } from './body';
+import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
+import {
+  BodyweightConflictError,
+  readBodyweight,
+  readTodayBodyweight,
+  readTrackingReport,
+  writeDailyBodyweight,
+} from './body';
 import { readTrainingReport } from './training';
+import type { DailyBodyweightRequest } from '../../src/contracts/body';
 
 const template: CoachTemplate = {
   training: coachPartnerTraining,
@@ -124,6 +133,176 @@ describe('Body service', () => {
       { title: "Tracking '26", cells: [['Date', 'Weight']] },
     ]);
     expect((await readBodyweight(sheet, template, '2026-07-01')).tabAvailable).toBe(false);
+  });
+
+  it('finds a Tracking tab whose Month header is in a different row than Date/Weight', async () => {
+    const sheet = new FakeSpreadsheet([
+      {
+        title: "Tracking '26",
+        cells: [
+          [],
+          ['Date', 'Weight'],
+          [serialDate('2026-06-30'), 225.6],
+          [],
+          ['', '', '', '', '', '', 'Month'],
+        ],
+      },
+    ]);
+    const response = await readBodyweight(sheet, template, '2026-06-30');
+    expect(response.tabAvailable).toBe(true);
+    expect(response.entries).toMatchObject([{ date: '2026-06-30', hasValue: true }]);
+  });
+
+  describe('writeDailyBodyweight', () => {
+    const cell = (sheet: FakeSpreadsheet, title: string, row: number) =>
+      sheet.readRanges([`'${title.replace(/'/g, "''")}'!B${row}`], 'UNFORMATTED_VALUE').then((r) => r[0][0]?.[0]);
+
+    async function revisionOf(sheet: FakeSpreadsheet, date: string, today = date) {
+      const { entries } = await readBodyweight(sheet, template, today);
+      return entries.find((e) => e.date === date)!.revision;
+    }
+
+    it('saves a weight and returns the updated response', async () => {
+      const sheet = new FakeSpreadsheet([tab26([['2026-06-29', null]])]);
+      const response = await writeDailyBodyweight(sheet, template, {
+        operation: 'save',
+        date: '2026-06-29',
+        weight: 226.5,
+        revision: await revisionOf(sheet, '2026-06-29'),
+      });
+      expect(response.entries[0]).toMatchObject({ hasValue: true, weight: '226.5' });
+    });
+
+    it('clears a weight and returns the updated response', async () => {
+      const sheet = new FakeSpreadsheet([tab26([['2026-06-29', 225.6]])]);
+      const response = await writeDailyBodyweight(sheet, template, {
+        operation: 'clear',
+        date: '2026-06-29',
+        revision: await revisionOf(sheet, '2026-06-29'),
+      });
+      expect(response.entries[0]).toMatchObject({ hasValue: false, weight: null });
+    });
+
+    it('overwrites a formula-error cell on save', async () => {
+      const sheet = new FakeSpreadsheet([
+        {
+          title: "Tracking '26",
+          cells: [
+            ['Date', 'Weight', '', '', '', '', 'Month'],
+            [serialDate('2026-03-03'), '#DIV/0!'],
+          ],
+        },
+      ]);
+      const response = await writeDailyBodyweight(sheet, template, {
+        operation: 'save',
+        date: '2026-03-03',
+        weight: 221,
+        revision: await revisionOf(sheet, '2026-03-03'),
+      });
+      expect(response.entries[0]).toMatchObject({ hasValue: true, weight: '221' });
+    });
+
+    it('rejects a non-positive weight with a TypeError and writes nothing', async () => {
+      const sheet = new FakeSpreadsheet([tab26([['2026-06-29', 225.6]])]);
+      await expect(
+        writeDailyBodyweight(sheet, template, {
+          operation: 'save',
+          date: '2026-06-29',
+          weight: -1,
+          revision: await revisionOf(sheet, '2026-06-29'),
+        })
+      ).rejects.toBeInstanceOf(TypeError);
+      expect(await cell(sheet, "Tracking '26", 3)).toBe(225.6);
+    });
+
+    it('routes by date across the 31 Dec to 1 Jan boundary', async () => {
+      const sheet = new FakeSpreadsheet([
+        tab26([['2026-12-31', null]]),
+        tab27([['2027-01-01', null]]),
+      ]);
+      for (const [date, weight] of [
+        ['2026-12-31', 224.5],
+        ['2027-01-01', 223.5],
+      ] as const) {
+        await writeDailyBodyweight(sheet, template, {
+          operation: 'save',
+          date,
+          weight,
+          revision: await revisionOf(sheet, date),
+        });
+      }
+      expect(await cell(sheet, "Tracking '26", 3)).toBe(224.5);
+      expect(await cell(sheet, "Tracking '27", 3)).toBe(223.5);
+    });
+
+    it("writes a past date to the '26 tab while today is in the '27 tab", async () => {
+      const sheet = new FakeSpreadsheet([
+        tab26([['2026-12-30', 225.0]]),
+        tab27([['2027-01-01', null]]),
+      ]);
+      await writeDailyBodyweight(sheet, template, {
+        operation: 'save',
+        date: '2026-12-30',
+        weight: 226,
+        revision: await revisionOf(sheet, '2026-12-30', '2027-01-01'),
+      });
+      expect(await cell(sheet, "Tracking '26", 3)).toBe(226);
+      expect(await cell(sheet, "Tracking '27", 3)).toBe('');
+    });
+
+    it('refuses a write to a date present in two tabs, writing nothing', async () => {
+      const sheet = new FakeSpreadsheet([
+        tab26([['2026-12-31', 224.5]]),
+        tab27([['2026-12-31', 224.0]]),
+      ]);
+      const request: DailyBodyweightRequest = {
+        operation: 'save',
+        date: '2026-12-31',
+        weight: 230,
+        revision: 'whatever',
+      };
+      const error = await writeDailyBodyweight(sheet, template, request).catch((e) => e);
+      expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+      expect(error.problems).toMatchObject([{ code: 'duplicate-tracking-date' }]);
+      expect(await cell(sheet, "Tracking '26", 3)).toBe(224.5);
+      expect(await cell(sheet, "Tracking '27", 3)).toBe(224);
+    });
+
+    it('refuses a stale revision, writing nothing', async () => {
+      const sheet = new FakeSpreadsheet([tab26([['2026-06-29', 225.6]])]);
+      await expect(
+        writeDailyBodyweight(sheet, template, {
+          operation: 'clear',
+          date: '2026-06-29',
+          revision: 'stale',
+        })
+      ).rejects.toBeInstanceOf(BodyweightConflictError);
+      expect(await cell(sheet, "Tracking '26", 3)).toBe(225.6);
+    });
+
+    it('conflicts when the date is not in any Tracking tab', async () => {
+      const sheet = new FakeSpreadsheet([tab26([['2026-06-29', null]])]);
+      await expect(
+        writeDailyBodyweight(sheet, template, {
+          operation: 'clear',
+          date: '2026-07-01',
+          revision: await revisionOf(sheet, '2026-06-29'),
+        })
+      ).rejects.toBeInstanceOf(BodyweightConflictError);
+    });
+
+    it('fails when the Source Spreadsheet does not confirm the write', async () => {
+      const sheet = new FakeSpreadsheet([tab26([['2026-06-29', null]])]);
+      sheet.writeRange = async () => {};
+      await expect(
+        writeDailyBodyweight(sheet, template, {
+          operation: 'save',
+          date: '2026-06-29',
+          weight: 226,
+          revision: await revisionOf(sheet, '2026-06-29'),
+        })
+      ).rejects.toThrow('did not confirm');
+    });
   });
 
   describe('alongside Workout Session tabs', () => {
