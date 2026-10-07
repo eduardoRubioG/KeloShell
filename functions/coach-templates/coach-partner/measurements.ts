@@ -24,10 +24,10 @@ const MONTHS = new Map(
   ].map((month, index) => [month, index + 1])
 );
 
-/** A Date/Weight tab as the Measurement Check-In parser needs to see it. */
+/** A Tracking tab as the Measurement Check-In parser needs to see it. */
 export interface MeasurementTabInput {
   title: string;
-  /** 0-based row of the Month header, -1 when missing. */
+  /** 0-based row of the Month header. */
   monthHeaderRow: number;
   /** 0-based column of the Month header. */
   monthColumn: number;
@@ -172,17 +172,6 @@ export function buildMeasurementsReport(
 function parseMeasurementTab(
   tab: MeasurementTabInput
 ): ParsedTab | { problem: FormatProblem } {
-  if (tab.monthHeaderRow === -1) {
-    return {
-      problem: {
-        code: 'missing-month-header',
-        tab: tab.title,
-        cell: null,
-        message: `The "${tab.title}" tab has no Month header in column G, so its Measurement Check-Ins cannot be read.`,
-      },
-    };
-  }
-
   const headerRow = tab.rawRows[tab.monthHeaderRow] ?? [];
   const fields = parseFields(headerRow, tab.monthColumn);
   if (fields.length === 0) {

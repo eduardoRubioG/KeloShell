@@ -46,7 +46,7 @@ interface TrackingEntry {
 interface TrackingTab {
   title: string;
   entries: TrackingEntry[];
-  /** 0-based row of the Month header, -1 when the tab has none. */
+  /** 0-based row of the Month header. */
   monthHeaderRow: number;
   rawRows: readonly unknown[][];
   formattedRows: readonly unknown[][];
@@ -63,17 +63,12 @@ async function readTracking(
   gateway: SpreadsheetGateway,
   today: string
 ): Promise<TrackingReport> {
-  return buildReport(await discoverTabs(gateway), today);
+  return buildReport(await discoverTrackingTabs(gateway), today);
 }
 
-async function discoverTabs(gateway: SpreadsheetGateway): Promise<TrackingTab[]> {
-  return (await discoverDateWeightTabs(gateway)).filter(
-    (tab) => tab.monthHeaderRow !== -1
-  );
-}
-
-// Every tab with a Date/Weight header, including ones missing a Month header.
-async function discoverDateWeightTabs(
+// The one Tracking tab definition, shared by Daily Bodyweight and Measurement
+// Check-Ins: Date/Weight headers in A:B and a Month header in column G.
+async function discoverTrackingTabs(
   gateway: SpreadsheetGateway
 ): Promise<TrackingTab[]> {
   const titles = await gateway.listSheetTitles();
@@ -92,7 +87,7 @@ async function discoverDateWeightTabs(
       unformatted[index] ?? [],
       formatted[index] ?? []
     );
-    if (tab) {
+    if (tab && tab.monthHeaderRow !== -1) {
       tabs.push(tab);
     }
   });
@@ -164,7 +159,7 @@ function duplicateProblems(date: string, found: TrackingEntry[]): FormatProblem[
 async function readMeasurements(
   gateway: SpreadsheetGateway
 ): Promise<MeasurementsReport> {
-  return buildMeasurementsReport(measurementInputs(await discoverDateWeightTabs(gateway)));
+  return buildMeasurementsReport(measurementInputs(await discoverTrackingTabs(gateway)));
 }
 
 function measurementInputs(tabs: readonly TrackingTab[]): MeasurementTabInput[] {
@@ -183,7 +178,7 @@ async function writeMeasurementCheckIn(
   request: MeasurementCheckInSaveRequest
 ): Promise<MeasurementCheckInWriteResult> {
   const found = locateMeasurementCheckIns(
-    measurementInputs(await discoverDateWeightTabs(gateway)),
+    measurementInputs(await discoverTrackingTabs(gateway)),
     request.date
   );
   if (found.length === 0) {
@@ -233,7 +228,7 @@ async function writeDailyBodyweight(
   request: DailyBodyweightRequest
 ): Promise<TrackingWriteResult> {
   // Past dates live in whichever tab holds them, not necessarily the current one.
-  const found = groupByDate(await discoverTabs(gateway)).get(request.date);
+  const found = groupByDate(await discoverTrackingTabs(gateway)).get(request.date);
   if (!found) {
     throw new BodyweightConflictError('That date is not in the Source Spreadsheet.');
   }

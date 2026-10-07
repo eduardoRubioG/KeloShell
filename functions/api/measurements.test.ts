@@ -42,12 +42,15 @@ describe('GET /api/measurements', () => {
     expect(body.checkIns.map((c) => c.date)).toEqual(['2026-12-01', '2027-01-01']);
   });
 
-  it('answers 422 when a Tracking tab has no Month header', async () => {
+  it('answers 422 when a Tracking tab has no Measurement Fields', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const response = await handleMeasurementsRequest(
       new Request('http://localhost/api/measurements'),
       configuredEnv,
-      () => new FakeSpreadsheet([{ title: "Tracking '26", cells: [['Date', 'Weight']] }])
+      () =>
+        new FakeSpreadsheet([
+          { title: "Tracking '26", cells: [['Date', 'Weight', '', '', '', '', 'Month']] },
+        ])
     );
     expect(response.status).toBe(422);
   });

@@ -453,17 +453,23 @@ describe('Body service', () => {
       expect(response.checkIns.map((c) => c.date)).toEqual(['2026-01-01', '2027-01-01']);
     });
 
-    it('reports a Tracking tab without a Month header as a problem and fails when none is usable', async () => {
+    it('ignores a Date/Weight tab without a Month header, as the bodyweight path does', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sheet = new FakeSpreadsheet([
+        withCheckIns("Tracking '26", [['2026-01-01', 225]], [['January 1st', [32, 15]]]),
+        { title: 'Scratch', cells: [['Date', 'Weight'], ['2026-02-01', 224]] },
+      ]);
+      const response = await readMeasurements(sheet, template);
+      expect(response.checkIns.map((c) => c.date)).toEqual(['2026-01-01']);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('reports no Tracking tabs when the only Date/Weight tab has no Month header', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
       const sheet = new FakeSpreadsheet([
         { title: "Tracking '26", cells: [['Date', 'Weight']] },
       ]);
-      const error = await readMeasurements(sheet, template).catch((e) => e);
-      expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
-      expect(error.problems).toMatchObject([
-        { code: 'missing-month-header', tab: "Tracking '26" },
-      ]);
-      expect(warn).toHaveBeenCalledTimes(1);
+      expect((await readMeasurements(sheet, template)).tabAvailable).toBe(false);
     });
 
     it('reports a Tracking tab without Measurement Fields as a problem and fails when none is usable', async () => {
