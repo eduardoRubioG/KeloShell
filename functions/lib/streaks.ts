@@ -1,8 +1,8 @@
 import type { StreakSummary, StreaksResponse, CreatineLogRequest } from '../../src/contracts/streaks';
 import type { TrainingWeeksResponse } from '../../src/contracts/training';
 import { HABITS_SHEET_NAME, CREATINE_HABIT_KEY } from './config';
-import { readBodyweight, type BodyTrackingGateway } from './body-tracking';
 import type { CoachTemplate } from '../coach-templates/types';
+import { readBodyweight } from '../services/body';
 import { readTrainingWeeks } from '../services/training';
 import type { SpreadsheetGateway } from './spreadsheet-gateway';
 
@@ -135,21 +135,19 @@ export async function logCreatine(
 
 export async function computeStreaks({
   habitsGateway,
-  bodyweightGateway,
-  trainingGateway,
+  sourceGateway,
   template,
   today,
 }: {
   habitsGateway: HabitsGateway;
-  bodyweightGateway: BodyTrackingGateway;
-  trainingGateway: SpreadsheetGateway;
+  sourceGateway: SpreadsheetGateway;
   template: CoachTemplate;
   today: string;
 }): Promise<StreaksResponse> {
   const [creatineDates, bodyweightResponse, trainingResponse] = await Promise.all([
     readCreatineDates(habitsGateway),
-    readBodyweight(bodyweightGateway),
-    readTrainingWeeks(trainingGateway, template),
+    readBodyweight(sourceGateway, template, today),
+    readTrainingWeeks(sourceGateway, template),
   ]);
 
   const creatineStreak = consecutiveStreak(creatineDates, today);

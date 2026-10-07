@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { BodyTrackingGateway } from '../lib/body-tracking';
+import { FakeSpreadsheet, trackingTabGrid } from '../testing/fake-spreadsheet';
 import { handleBodyweightRequest } from './bodyweight';
 
 const configuredEnv = {
@@ -9,12 +9,6 @@ const configuredEnv = {
   GOOGLE_SPREADSHEET_ID: 'sheet-id',
   LOCAL_AUTH_BYPASS: 'true',
 };
-
-const SHEETS_EPOCH = Date.UTC(1899, 11, 30);
-const DAY = 86_400_000;
-function serial(isoDate: string): number {
-  return (Date.parse(`${isoDate}T00:00:00Z`) - SHEETS_EPOCH) / DAY;
-}
 
 describe('GET /api/bodyweight', () => {
   it('requires Private Tool Access away from localhost', async () => {
@@ -38,41 +32,24 @@ describe('GET /api/bodyweight', () => {
     const response = await handleBodyweightRequest(
       new Request('http://localhost/api/bodyweight'),
       configuredEnv,
-      () => new ValidBodyweightGateway()
+      () =>
+        new FakeSpreadsheet([
+          {
+            title: "Tracking '26",
+            ...trackingTabGrid([['2026-06-29', 225.6]]),
+          },
+          {
+            title: "Tracking '27",
+            ...trackingTabGrid([['2027-01-01', 224.0]]),
+          },
+        ])
     );
     expect(response.status).toBe(200);
     const body = await response.json() as { tabAvailable: boolean; entries: unknown[] };
     expect(body.tabAvailable).toBe(true);
-    expect(body.entries.length).toBeGreaterThan(0);
+    expect(body.entries.map((e) => (e as { date: string }).date)).toEqual([
+      '2026-06-29',
+      '2027-01-01',
+    ]);
   });
 });
-
-class ValidBodyweightGateway implements BodyTrackingGateway {
-  async readRanges(
-    _ranges: readonly string[],
-    option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
-  ): Promise<unknown[][][]> {
-    const raw = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      ['Date', 'Weight'],
-      [serial('2026-06-29'), 225.6],
-    ];
-    const fmt = [
-      [],
-      [],
-      [],
-      [],
-      [],
-      ['Date', 'Weight'],
-      ['6/29', '225.6'],
-    ];
-    return [option === 'UNFORMATTED_VALUE' ? raw : fmt];
-  }
-
-  async writeRange(): Promise<void> {}
-  async clearRange(): Promise<void> {}
-}

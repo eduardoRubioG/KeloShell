@@ -1,3 +1,4 @@
+import type { DailyBodyweightEntry } from '../../src/contracts/body';
 import type {
   LiftLogRequest,
   TrainingWeeksResponse,
@@ -29,6 +30,29 @@ export interface TrainingTemplate {
   ): Promise<TrainingWeeksResponse>;
 }
 
+/**
+ * What a Coach Template found when reading Tracking. `entries` merge every
+ * Tracking tab in date order; `todayEntry` is today's Daily Bodyweight, null
+ * when no tab has a row for today (which is not a problem).
+ */
+export interface TrackingReport {
+  /** False when the spreadsheet has no Tracking tab at all. */
+  tabAvailable: boolean;
+  entries: DailyBodyweightEntry[];
+  todayEntry: DailyBodyweightEntry | null;
+  problems: FormatProblem[];
+}
+
+/** Tracking behaviour of a Coach Template, in domain terms only. */
+export interface TrackingTemplate {
+  /** `today` is the Local Calendar Date, YYYY-MM-DD. */
+  readTracking(
+    gateway: SpreadsheetGateway,
+    today: string
+  ): Promise<TrackingReport>;
+}
+
 export interface CoachTemplate {
   training: TrainingTemplate;
+  tracking: TrackingTemplate;
 }

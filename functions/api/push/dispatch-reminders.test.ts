@@ -5,10 +5,8 @@ import type { ReminderGateway } from '../../lib/reminders';
 import type { HabitsGateway } from '../../lib/streaks';
 import type { UserId } from '../../lib/users';
 import { addSubscription } from '../../lib/push-store';
-import {
-  handleDispatchRemindersRequest,
-  localDateTime,
-} from './dispatch-reminders';
+import { localDateTime } from '../../lib/local-date';
+import { handleDispatchRemindersRequest } from './dispatch-reminders';
 
 const SHEETS_EPOCH = Date.UTC(1899, 11, 30);
 const DAY = 86_400_000;
