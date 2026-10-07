@@ -3,17 +3,31 @@ import type {
   DailyBodyweightEntry,
   DailyBodyweightRequest,
 } from '../../src/contracts/body';
+import { FORMAT_MESSAGE, SourceSpreadsheetSchemaError, type FormatProblem } from '../lib/format-problems';
 import type { CoachTemplate, TrackingReport } from '../coach-templates/types';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 
 export { BodyweightConflictError } from '../lib/body-errors';
 
-export function readTrackingReport(
+// Problems are logged here, not in the adapter, so they surface in the
+// Cloudflare logs whichever Coach Template reported them.
+function logProblems(problems: readonly FormatProblem[]): void {
+  if (problems.length > 0) {
+    console.warn('[body] source spreadsheet problems', {
+      event: 'tracking-problems',
+      problems,
+    });
+  }
+}
+
+export async function readTrackingReport(
   gateway: SpreadsheetGateway,
   template: CoachTemplate,
   today: string
 ): Promise<TrackingReport> {
-  return template.tracking.readTracking(gateway, today);
+  const report = await template.tracking.readTracking(gateway, today);
+  logProblems(report.problems);
+  return report;
 }
 
 export async function readBodyweight(
@@ -34,10 +48,15 @@ export async function readTodayBodyweight(
   return (await readTrackingReport(gateway, template, today)).todayEntry;
 }
 
-export function writeDailyBodyweight(
+export async function writeDailyBodyweight(
   gateway: SpreadsheetGateway,
   template: CoachTemplate,
   request: DailyBodyweightRequest
 ): Promise<BodyweightResponse> {
-  return template.tracking.writeDailyBodyweight(gateway, request);
+  const result = await template.tracking.writeDailyBodyweight(gateway, request);
+  if (!result.ok) {
+    logProblems(result.problems);
+    throw new SourceSpreadsheetSchemaError(FORMAT_MESSAGE, result.problems);
+  }
+  return result.response;
 }

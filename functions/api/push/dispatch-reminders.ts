@@ -4,7 +4,13 @@ import type {
   PushSubscriptionPayload,
 } from '../../../src/contracts/push';
 import { SourceSpreadsheetSchemaError } from '../../lib/format-problems';
-import { localDateTime, resolveTimeZone, type LocalDateTime } from '../../lib/local-date';
+import {
+  addDays,
+  localDateTime,
+  resolveTimeZone,
+  type LocalDateEnv,
+  type LocalDateTime,
+} from '../../lib/local-date';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../../lib/google-sheets';
 import {
   evaluateReminders,
@@ -33,7 +39,7 @@ import {
   type UserResolutionEnv,
 } from '../../lib/users';
 
-const BODY_TRACKING_START_MINUTES = 7 * 60; // 07:00 local
+const REMINDER_START_MINUTES = 7 * 60; // 07:00 local
 const STEPS_MORNING_START_MINUTES = 7 * 60 + 30; // 07:30 local
 const MORNING_END_MINUTES = 12 * 60; // noon; keeps the morning steps prompt out of the evening
 const CREATINE_START_MINUTES = 21 * 60; // 21:00 local
@@ -42,13 +48,12 @@ const STEPS_EVENING_START_MINUTES = 22 * 60; // 22:00 local
 // The cron worker calls this endpoint with an Access service token, so there is
 // no per-request user identity. Instead the dispatcher fans out over every
 // configured user, reading each one's own spreadsheets and push subscriptions.
-interface Env extends UserResolutionEnv {
+interface Env extends UserResolutionEnv, LocalDateEnv {
   PUSH_KV?: KVNamespace;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
   REMINDER_DISPATCH_TOKEN?: string;
-  REMINDER_TIME_ZONE?: string;
 }
 
 interface Dependencies {
@@ -151,7 +156,7 @@ async function dispatchForUser(
   const activeReminders: ReminderKind[] = [];
   let evaluatedAny = false;
 
-  if (source && (force || minuteOfDay >= BODY_TRACKING_START_MINUTES)) {
+  if (source && (force || minuteOfDay >= REMINDER_START_MINUTES)) {
     evaluatedAny = true;
     try {
       activeReminders.push(
@@ -252,12 +257,6 @@ async function dispatchForUser(
   }
 
   return { id: userId, sent, reminders: successfulKinds };
-}
-
-function addDays(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }
 
 function isAuthorized(request: Request, expectedToken: string | undefined): boolean {

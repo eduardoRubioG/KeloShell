@@ -47,6 +47,11 @@ export interface TrackingReport {
   problems: FormatProblem[];
 }
 
+/** The outcome of a Daily Bodyweight write: saved, or refused with problems. */
+export type TrackingWriteResult =
+  | { ok: true; response: BodyweightResponse }
+  | { ok: false; problems: FormatProblem[] };
+
 /** Tracking behaviour of a Coach Template, in domain terms only. */
 export interface TrackingTemplate {
   /** `today` is the Local Calendar Date, YYYY-MM-DD. */
@@ -57,13 +62,13 @@ export interface TrackingTemplate {
   /**
    * Saves or clears Daily Bodyweight for an existing date, whichever Tracking
    * tab holds it. Throws BodyweightConflictError for a stale revision or a
-   * date not in the Source Spreadsheet, and SourceSpreadsheetSchemaError when
-   * the date is duplicated across tabs.
+   * date not in the Source Spreadsheet. Refuses without writing, reporting
+   * problems, when the date is duplicated across tabs.
    */
   writeDailyBodyweight(
     gateway: SpreadsheetGateway,
     request: DailyBodyweightRequest
-  ): Promise<BodyweightResponse>;
+  ): Promise<TrackingWriteResult>;
 }
 
 export interface CoachTemplate {

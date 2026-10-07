@@ -4,7 +4,8 @@ import { HABITS_SHEET_NAME, CREATINE_HABIT_KEY } from './config';
 import type { CoachTemplate } from '../coach-templates/types';
 import { readBodyweight } from '../services/body';
 import { readTrainingWeeks } from '../services/training';
-import type { SpreadsheetGateway } from './spreadsheet-gateway';
+import { addDays } from './local-date';
+import { tabRange, type SpreadsheetGateway } from './spreadsheet-gateway';
 
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 
@@ -74,9 +75,8 @@ export function computeWorkoutStreakFromWeeks(
 export async function readCreatineDates(
   habitsGateway: HabitsGateway
 ): Promise<Set<string>> {
-  const escapedName = HABITS_SHEET_NAME.replace(/'/g, "''");
   const [rows] = await habitsGateway.readRanges(
-    [`'${escapedName}'!A:B`],
+    [tabRange(HABITS_SHEET_NAME, 'A:B')],
     'UNFORMATTED_VALUE'
   );
   const dates = new Set<string>();
@@ -94,9 +94,8 @@ export async function logCreatine(
   habitsGateway: HabitsGateway,
   request: CreatineLogRequest
 ): Promise<void> {
-  const escapedName = HABITS_SHEET_NAME.replace(/'/g, "''");
   const [rows] = await habitsGateway.readRanges(
-    [`'${escapedName}'!A:B`],
+    [tabRange(HABITS_SHEET_NAME, 'A:B')],
     'UNFORMATTED_VALUE'
   );
   const dataRows = rows ?? [];
@@ -207,10 +206,4 @@ function parseDateCell(value: unknown): string | null {
 
 function cellText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : String(value ?? '').trim();
-}
-
-function addDays(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }

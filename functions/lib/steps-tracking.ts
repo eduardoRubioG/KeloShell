@@ -1,6 +1,8 @@
 import type { StepsResponse, DailyStepsRequest } from '../../src/contracts/steps';
 import { STEPS_SHEET_NAME } from './config';
 import { SourceSpreadsheetSchemaError } from './format-problems';
+import { addDays } from './local-date';
+import { tabRange } from './spreadsheet-gateway';
 
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 const WINDOW_DAYS = 30;
@@ -39,8 +41,7 @@ interface ParsedSheet {
 }
 
 async function readParsedSheet(gateway: StepsGateway): Promise<ParsedSheet> {
-  const escapedName = STEPS_SHEET_NAME.replace(/'/g, "''");
-  const sheetRange = `'${escapedName}'!A:B`;
+  const sheetRange = tabRange(STEPS_SHEET_NAME, 'A:B');
   const [unformatted] = await gateway.readRanges([sheetRange], 'UNFORMATTED_VALUE');
   const [formatted] = await gateway.readRanges([sheetRange], 'FORMATTED_VALUE');
 
@@ -193,12 +194,6 @@ function parseDateCell(value: unknown): string | null {
     return value.trim();
   }
   return null;
-}
-
-function addDays(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }
 
 function cellText(value: unknown): string {

@@ -1,6 +1,8 @@
 import type { PushNotificationPayload } from '../../src/contracts/push';
 import { BODYWEIGHT_SHEET_NAME } from './config';
 import { SourceSpreadsheetSchemaError } from './format-problems';
+import { addDays } from './local-date';
+import { tabRange } from './spreadsheet-gateway';
 
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 const MONTHS = new Map(
@@ -38,9 +40,8 @@ export async function evaluateReminders(
   gateway: ReminderGateway,
   localDate: string
 ): Promise<ReminderKind[]> {
-  const escapedName = BODYWEIGHT_SHEET_NAME.replace(/'/g, "''");
   const [bodyweightRows, measurementRows] = await gateway.readRanges(
-    [`'${escapedName}'!A:B`, `'${escapedName}'!G:G`],
+    [tabRange(BODYWEIGHT_SHEET_NAME, 'A:B'), tabRange(BODYWEIGHT_SHEET_NAME, 'G:G')],
     'UNFORMATTED_VALUE'
   );
 
@@ -181,12 +182,6 @@ function measurementMonthDay(value: unknown): string | null {
   const date = new Date(Date.UTC(2000, month - 1, day));
   if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
   return `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
-function addDays(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }
 
 function isPositiveDecimal(value: unknown): boolean {

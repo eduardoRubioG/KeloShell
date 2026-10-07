@@ -10,7 +10,8 @@ import type {
 } from '../../../src/contracts/training';
 import { SourceSpreadsheetSchemaError } from '../../lib/format-problems';
 import { LiftLogConflictError, UnknownWorkoutSessionError } from '../../lib/lift-log-errors';
-import type { SpreadsheetGateway } from '../../lib/spreadsheet-gateway';
+import { addDays } from '../../lib/local-date';
+import { tabRange, type SpreadsheetGateway } from '../../lib/spreadsheet-gateway';
 import type { FormatProblem } from '../../lib/format-problems';
 import type { TrainingReport, TrainingTemplate } from '../types';
 import {
@@ -149,7 +150,7 @@ function requireUsable(analysis: Analysis): ParsedSession[] {
 
 async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis> {
   const tabNames = await gateway.listSheetTitles();
-  const ranges = tabNames.map((name) => `'${name.replace(/'/g, "''")}'!A:CF`);
+  const ranges = tabNames.map((name) => tabRange(name, 'A:CF'));
   const unformattedGrids = ranges.length
     ? await gateway.readRanges(ranges, 'UNFORMATTED_VALUE')
     : [];
@@ -979,12 +980,6 @@ function parseMonthDay(value: string): { month: number; day: number } | null {
     return null;
   }
   return { month: Number(match[1]), day: Number(match[2]) };
-}
-
-function addDays(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return formatIsoDate(date);
 }
 
 function parseWholeNumber(value: unknown): number | null {

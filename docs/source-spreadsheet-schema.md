@@ -7,11 +7,13 @@ only use the domain contract from `src/contracts/training.ts`.
 ## Reminder source data
 
 Tracking tabs (for example `Tracking '26`, `Tracking '27`) contain both
-reminder sources. A tab is found by structure, not by name: a `Date`/`Weight`
-header row in columns A:B and a `Month` header somewhere in column G. The
-current tab is the one holding today's Local Calendar Date; Daily Bodyweight
-history is merged across all Tracking tabs, and a date that appears in more
-than one tab is a problem (it is left out and cannot be written).
+reminder sources. Daily Bodyweight finds a Tracking tab by structure, not by
+name: a `Date`/`Weight` header row in columns A:B and a `Month` header somewhere
+in column G. The current tab is the one holding today's Local Calendar Date;
+Daily Bodyweight history is merged across all Tracking tabs, and a date that
+appears in more than one tab is a problem (it is left out and cannot be
+written). Reminders and Measurement Check-Ins still read `Tracking '26` by
+name until structure-based discovery reaches them (#22, #23).
 
 Daily Bodyweight dates and values are under the `Date` and `Weight` headers in
 columns A:B. A Bodyweight Reminder is due when today's Local Calendar Date exists and its

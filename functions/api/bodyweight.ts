@@ -3,12 +3,12 @@ import type { BodyweightResponse } from '../../src/contracts/body';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
 import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import { resolveCoachTemplate } from '../coach-templates/registry';
-import { serverToday } from '../lib/local-date';
+import { todayLocalCalendarDate, type LocalDateEnv } from '../lib/local-date';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 import { readBodyweight } from '../services/body';
 import { getSourceCredentials, resolveUserId, type UserResolutionEnv } from '../lib/users';
 
-type Env = UserResolutionEnv & { REMINDER_TIME_ZONE?: string };
+type Env = UserResolutionEnv & LocalDateEnv;
 
 type GatewayFactory = (credentials: GoogleSheetsCredentials) => SpreadsheetGateway;
 
@@ -41,7 +41,7 @@ export async function handleBodyweightRequest(
     const response = await readBodyweight(
       createGateway(credentials),
       resolveCoachTemplate(userId),
-      serverToday(env)
+      todayLocalCalendarDate(env)
     );
     return json(response, 200);
   } catch (error) {

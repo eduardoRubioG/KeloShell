@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { coachPartnerTraining } from '../coach-templates/coach-partner/training';
 import { coachPartnerTracking } from '../coach-templates/coach-partner/tracking';
@@ -35,6 +35,48 @@ const tab27 = (rows: [string, number | null][]) => ({
 });
 
 describe('Body service', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('problem logging', () => {
+    const duplicated = () =>
+      new FakeSpreadsheet([
+        tab26([['2026-12-31', 224.5]]),
+        tab27([['2026-12-31', 224.0]]),
+      ]);
+
+    it('logs the report problems on a read', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await readBodyweight(duplicated(), template, '2026-12-31');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith('[body] source spreadsheet problems', {
+        event: 'tracking-problems',
+        problems: [expect.objectContaining({ code: 'duplicate-tracking-date' })],
+      });
+    });
+
+    it('logs the problems when a write is refused', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await writeDailyBodyweight(duplicated(), template, {
+        operation: 'clear',
+        date: '2026-12-31',
+        revision: 'x',
+      }).catch(() => {});
+      expect(warn).toHaveBeenCalledWith('[body] source spreadsheet problems', {
+        event: 'tracking-problems',
+        problems: [expect.objectContaining({ code: 'duplicate-tracking-date' })],
+      });
+    });
+
+    it('does not log when there are no problems, even with no row today', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sheet = new FakeSpreadsheet([tab26([['2026-06-30', 225.6]])]);
+      await readBodyweight(sheet, template, '2026-07-05');
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
   it("reads a single Tracking tab ('26 only)", async () => {
     const sheet = new FakeSpreadsheet([
       tab26([
@@ -263,6 +305,7 @@ describe('Body service', () => {
       };
       const error = await writeDailyBodyweight(sheet, template, request).catch((e) => e);
       expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+      expect(error.message).toBe('The Source Spreadsheet structure could not be interpreted.');
       expect(error.problems).toMatchObject([{ code: 'duplicate-tracking-date' }]);
       expect(await cell(sheet, "Tracking '26", 3)).toBe(224.5);
       expect(await cell(sheet, "Tracking '27", 3)).toBe(224);

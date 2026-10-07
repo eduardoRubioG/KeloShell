@@ -44,6 +44,13 @@ export function resolveTimeZone(env: LocalDateEnv): string {
 }
 
 /** The Local Calendar Date (YYYY-MM-DD) in the configured time zone. */
-export function serverToday(env: LocalDateEnv, now: Date = new Date()): string {
+export function todayLocalCalendarDate(env: LocalDateEnv, now: Date = new Date()): string {
   return localDateTime(now, resolveTimeZone(env)).date;
+}
+
+/** Shifts a YYYY-MM-DD calendar date by whole days. */
+export function addDays(isoDate: string, days: number): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }

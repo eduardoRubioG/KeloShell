@@ -7,6 +7,7 @@ import type {
 } from '../../src/contracts/measurements';
 import { BODYWEIGHT_SHEET_NAME } from './config';
 import { SourceSpreadsheetSchemaError } from './format-problems';
+import { tabRange } from './spreadsheet-gateway';
 
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 const MONTHS = new Map(
@@ -69,8 +70,7 @@ interface ParsedSheet {
 async function readParsedSheet(
   gateway: MeasurementTrackingGateway
 ): Promise<ParsedSheet> {
-  const escapedName = BODYWEIGHT_SHEET_NAME.replace(/'/g, "''");
-  const sheetRange = `'${escapedName}'!G:Z`;
+  const sheetRange = tabRange(BODYWEIGHT_SHEET_NAME, 'G:Z');
   const [unformatted] = await gateway.readRanges([sheetRange], 'UNFORMATTED_VALUE');
   const [formatted] = await gateway.readRanges([sheetRange], 'FORMATTED_VALUE');
 
