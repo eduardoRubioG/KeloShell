@@ -27,6 +27,7 @@ const MONTHS = new Map(
   ].map((month, index) => [month, index + 1])
 );
 
+/** @deprecated Only types the hard-coded `Tracking '26` read/write; Measurement Check-Ins move to SpreadsheetGateway and the Coach Template in #22. */
 export interface MeasurementTrackingGateway {
   readRanges(
     ranges: readonly string[],
@@ -67,6 +68,7 @@ interface ParsedSheet {
   rows: ParsedCheckInRow[];
 }
 
+/** @deprecated Reads the hard-coded `Tracking '26` tab; Measurement Check-Ins are read across Tracking tabs in #22. */
 async function readParsedSheet(
   gateway: MeasurementTrackingGateway
 ): Promise<ParsedSheet> {
@@ -129,6 +131,7 @@ async function readParsedSheet(
   };
 }
 
+/** @deprecated Writes to the hard-coded `Tracking '26` tab; Measurement Check-Ins are saved across Tracking tabs in #22. */
 export async function saveMeasurementCheckIn(
   gateway: MeasurementTrackingGateway,
   request: MeasurementCheckInSaveRequest
@@ -175,6 +178,7 @@ export async function saveMeasurementCheckIn(
   return response;
 }
 
+/** @deprecated Reads the hard-coded `Tracking '26` tab; Measurement Check-Ins are read across Tracking tabs in #22. */
 export async function readMeasurements(
   gateway: MeasurementTrackingGateway
 ): Promise<MeasurementsResponse> {

@@ -25,13 +25,24 @@ export type TrainingReport =
     }
   | { ok: false; sessions: string[]; problems: FormatProblem[] };
 
+/** The outcome of a Lift Log write: saved, or refused with problems. */
+export type LiftLogWriteResult =
+  | { ok: true; response: TrainingWeeksResponse }
+  | { ok: false; problems: FormatProblem[] };
+
 /** Training behaviour of a Coach Template, in domain terms only. */
 export interface TrainingTemplate {
   readTraining(gateway: SpreadsheetGateway): Promise<TrainingReport>;
+  /**
+   * Saves or clears one Lift Log. Throws LiftLogConflictError for a stale
+   * revision or unavailable lift, and UnknownWorkoutSessionError for an
+   * unknown session. Refuses without writing, reporting problems, when the
+   * Training tabs cannot be interpreted.
+   */
   writeLiftLog(
     gateway: SpreadsheetGateway,
     request: LiftLogRequest
-  ): Promise<TrainingWeeksResponse>;
+  ): Promise<LiftLogWriteResult>;
 }
 
 /**

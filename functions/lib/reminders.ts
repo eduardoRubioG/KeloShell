@@ -29,6 +29,7 @@ export type ReminderKind =
   | 'steps'
   | 'steps-yesterday';
 
+/** @deprecated Only types the old `Tracking '26' read; reminders move to SpreadsheetGateway and the Coach Template in #23. */
 export interface ReminderGateway {
   readRanges(
     ranges: readonly string[],
@@ -36,6 +37,7 @@ export interface ReminderGateway {
   ): Promise<unknown[][][]>;
 }
 
+/** @deprecated Reads the hard-coded `Tracking '26` tab; reminders are evaluated from the current Tracking tab in #23. */
 export async function evaluateReminders(
   gateway: ReminderGateway,
   localDate: string

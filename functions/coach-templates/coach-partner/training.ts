@@ -8,12 +8,11 @@ import type {
   TrainingWeeksResponse,
   TrainingWeekSummary,
 } from '../../../src/contracts/training';
-import { SourceSpreadsheetSchemaError } from '../../lib/format-problems';
 import { LiftLogConflictError, UnknownWorkoutSessionError } from '../../lib/lift-log-errors';
 import { addDays } from '../../lib/local-date';
 import { tabRange, type SpreadsheetGateway } from '../../lib/spreadsheet-gateway';
 import type { FormatProblem } from '../../lib/format-problems';
-import type { TrainingReport, TrainingTemplate } from '../types';
+import type { LiftLogWriteResult, TrainingReport, TrainingTemplate } from '../types';
 import {
   cellText,
   displayCell,
@@ -137,17 +136,6 @@ function toReport(analysis: Analysis): TrainingReport {
   };
 }
 
-function requireUsable(analysis: Analysis): ParsedSession[] {
-  if (hasBlockingProblem(analysis)) {
-    throw new SourceSpreadsheetSchemaError(
-      analysis.problems.find(isBlocking)?.message ??
-        'The Source Spreadsheet structure could not be interpreted.',
-      analysis.problems
-    );
-  }
-  return analysis.sessions;
-}
-
 async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis> {
   const tabNames = await gateway.listSheetTitles();
   const ranges = tabNames.map((name) => tabRange(name, 'A:CF'));
@@ -162,9 +150,10 @@ async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis
     unformattedGrids.length !== tabNames.length ||
     formattedGrids.length !== tabNames.length
   ) {
-    throw new SourceSpreadsheetSchemaError(
-      'The required Workout Session tabs could not be read.',
-      [
+    return {
+      sessionNames: [],
+      sessions: [],
+      problems: [
         {
           code: 'unreadable-tabs',
           tab: null,
@@ -172,8 +161,8 @@ async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis
           message:
             'The Source Spreadsheet returned a different number of tab grids than were requested, so the Workout Session tabs could not be read. Retry; if it persists, check the spreadsheet is shared with the service account.',
         },
-      ]
-    );
+      ],
+    };
   }
 
   const problems: FormatProblem[] = [];
@@ -613,9 +602,12 @@ function detailLift(
 async function writeLiftLog(
   gateway: SpreadsheetGateway,
   request: LiftLogRequest
-): Promise<TrainingWeeksResponse> {
+): Promise<LiftLogWriteResult> {
   const analysis = await analyzeSpreadsheet(gateway);
-  const sessions = requireUsable(analysis);
+  if (hasBlockingProblem(analysis)) {
+    return { ok: false, problems: analysis.problems };
+  }
+  const sessions = analysis.sessions;
   if (!analysis.sessionNames.includes(request.session)) {
     throw new UnknownWorkoutSessionError(request.session);
   }
@@ -659,9 +651,11 @@ async function writeLiftLog(
     ]);
   }
 
-  const response = buildTrainingWeeks(
-    requireUsable(await analyzeSpreadsheet(gateway))
-  );
+  const updated = await analyzeSpreadsheet(gateway);
+  if (hasBlockingProblem(updated)) {
+    return { ok: false, problems: updated.problems };
+  }
+  const response = buildTrainingWeeks(updated.sessions);
   const updatedLift = response.weeks
     .find((candidate) => candidate.id === request.weekId)
     ?.sessions.find((candidate) => candidate.name === request.session)
@@ -681,7 +675,7 @@ async function writeLiftLog(
   if (!confirmed) {
     throw new Error('The Source Spreadsheet did not confirm the Lift Log write.');
   }
-  return response;
+  return { ok: true, response };
 }
 
 function addLiftContext(weeks: TrainingWeekSummary[]): void {
