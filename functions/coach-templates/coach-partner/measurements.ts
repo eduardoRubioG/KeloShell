@@ -77,6 +77,17 @@ export function locateMeasurementCheckIns(
   return found;
 }
 
+/** Dates of one tab's Measurement Check-Ins, or the problem that stops them being read. */
+export function readTabCheckInDates(
+  tab: TrackingTab
+): { ok: true; dates: string[] } | { ok: false; problem: FormatProblem } {
+  const parsed = parseMeasurementTab(tab);
+  if ('problem' in parsed) {
+    return { ok: false, problem: parsed.problem };
+  }
+  return { ok: true, dates: parsed.checkIns.map((checkIn) => checkIn.date) };
+}
+
 export function duplicateMeasurementDateProblem(date: string): FormatProblem {
   return {
     code: 'duplicate-measurement-date',

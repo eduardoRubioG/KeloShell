@@ -11,12 +11,14 @@ import type {
   MeasurementsReport,
   TrackingReport,
   TrackingTemplate,
+  TodayReminderState,
   TrackingWriteResult,
 } from '../types';
 import {
   buildMeasurementsReport,
   duplicateMeasurementDateProblem,
   locateMeasurementCheckIns,
+  readTabCheckInDates,
 } from './measurements';
 import { MONTH_COLUMN, type TrackingEntry, type TrackingTab } from './tracking-tab';
 import {
@@ -35,6 +37,7 @@ import {
 
 export const coachPartnerTracking: TrackingTemplate = {
   readTracking,
+  readTodayReminderState,
   writeDailyBodyweight,
   readMeasurements,
   writeMeasurementCheckIn,
@@ -45,6 +48,51 @@ async function readTracking(
   today: string
 ): Promise<TrackingReport> {
   return buildReport(await discoverTrackingTabs(gateway), today);
+}
+
+// The current Tracking tab is the one whose Date column holds today. Problems
+// in other tabs (an older year missing Measurement Fields, say) are ignored.
+async function readTodayReminderState(
+  gateway: SpreadsheetGateway,
+  today: string
+): Promise<TodayReminderState> {
+  const tabs = await discoverTrackingTabs(gateway);
+  if (tabs.length === 0) {
+    return {
+      todayEntry: null,
+      measurementCheckInToday: false,
+      problems: buildReport(tabs, today).problems,
+    };
+  }
+
+  const todays = tabs.flatMap((tab) =>
+    tab.entries.filter((found) => found.entry.date === today)
+  );
+  if (todays.length === 0) {
+    return { todayEntry: null, measurementCheckInToday: false, problems: [] };
+  }
+  if (todays.length > 1) {
+    return {
+      todayEntry: null,
+      measurementCheckInToday: false,
+      problems: duplicateProblems(today, todays),
+    };
+  }
+
+  const current = tabs.find((tab) => tab.title === todays[0].tab)!;
+  const checkIns = readTabCheckInDates(current);
+  if (!checkIns.ok) {
+    return {
+      todayEntry: todays[0].entry,
+      measurementCheckInToday: false,
+      problems: [checkIns.problem],
+    };
+  }
+  return {
+    todayEntry: todays[0].entry,
+    measurementCheckInToday: checkIns.dates.includes(today),
+    problems: [],
+  };
 }
 
 // The one Tracking tab definition, shared by Daily Bodyweight and Measurement

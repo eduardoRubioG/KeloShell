@@ -7,21 +7,19 @@ import type {
   DailyBodyweightEntry,
   DailyBodyweightRequest,
 } from '../../src/contracts/body';
-import { FORMAT_MESSAGE, SourceSpreadsheetSchemaError, type FormatProblem } from '../lib/format-problems';
+import {
+  FORMAT_MESSAGE,
+  logFormatProblems,
+  SourceSpreadsheetSchemaError,
+  type FormatProblem,
+} from '../lib/format-problems';
 import type { CoachTemplate, TrackingReport } from '../coach-templates/types';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 
 export { BodyweightConflictError, MeasurementCheckInConflictError } from '../lib/body-errors';
 
-// Problems are logged here, not in the adapter, so they surface in the
-// Cloudflare logs whichever Coach Template reported them.
 function logProblems(problems: readonly FormatProblem[]): void {
-  if (problems.length > 0) {
-    console.warn('[body] source spreadsheet problems', {
-      event: 'tracking-problems',
-      problems,
-    });
-  }
+  logFormatProblems('body', 'tracking-problems', problems);
 }
 
 export async function readTrackingReport(

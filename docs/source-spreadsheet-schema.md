@@ -12,8 +12,10 @@ name: a `Date`/`Weight` header row in columns A:B and a `Month` header somewhere
 in column G. The current tab is the one holding today's Local Calendar Date;
 Daily Bodyweight history is merged across all Tracking tabs, and a date that
 appears in more than one tab is a problem (it is left out and cannot be
-written). Reminders and Measurement Check-Ins still read `Tracking '26` by
-name until structure-based discovery reaches them (#22, #23).
+written). Measurement Check-Ins and reminders use the same discovery, so no
+reminder depends on a year-coded tab name. When a Tracking tab has a format
+problem, Bodyweight and Measurement Reminders are skipped for that Subscriber
+(the problem codes are logged) while steps and creatine reminders still go out.
 
 Daily Bodyweight dates and values are under the `Date` and `Weight` headers in
 columns A:B. A Bodyweight Reminder is due when today's Local Calendar Date exists and its

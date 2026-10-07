@@ -3,20 +3,18 @@ import type {
   TrainingWeeksResponse,
 } from '../../src/contracts/training';
 import type { CoachTemplate, TrainingReport } from '../coach-templates/types';
-import { FORMAT_MESSAGE, SourceSpreadsheetSchemaError, type FormatProblem } from '../lib/format-problems';
+import {
+  FORMAT_MESSAGE,
+  logFormatProblems,
+  SourceSpreadsheetSchemaError,
+  type FormatProblem,
+} from '../lib/format-problems';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 
 export { LiftLogConflictError, UnknownWorkoutSessionError } from '../lib/lift-log-errors';
 
-// Problems are logged here, not in the adapter, so they surface in the
-// Cloudflare logs whichever Coach Template reported them.
 function logProblems(problems: readonly FormatProblem[]): void {
-  if (problems.length > 0) {
-    console.warn('[training] source spreadsheet problems', {
-      event: 'training-problems',
-      problems,
-    });
-  }
+  logFormatProblems('training', 'training-problems', problems);
 }
 
 export async function readTrainingReport(

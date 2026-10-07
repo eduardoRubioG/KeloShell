@@ -21,3 +21,18 @@ export class SourceSpreadsheetSchemaError extends Error {
     this.problems = problems;
   }
 }
+
+/**
+ * Logs Source Spreadsheet problems from a service. Problems are logged in
+ * services, not adapters, so they surface in the Cloudflare logs whichever
+ * Coach Template reported them. Does nothing for an empty list.
+ */
+export function logFormatProblems(
+  tag: string,
+  event: string,
+  problems: readonly FormatProblem[]
+): void {
+  if (problems.length > 0) {
+    console.warn(`[${tag}] source spreadsheet problems`, { event, problems });
+  }
+}

@@ -81,6 +81,22 @@ export type TrackingWriteResult =
   | { ok: true; response: BodyweightResponse }
   | { ok: false; problems: FormatProblem[] };
 
+/**
+ * What a Coach Template found when deciding today's Tracking reminders from
+ * the current Tracking tab (the one whose Date column holds today).
+ * `todayEntry` is today's Daily Bodyweight in that tab; null when no tab holds
+ * today (not a problem) or the current tab cannot be determined.
+ * `measurementCheckInToday` is true when a Measurement Check-In in that tab is
+ * dated today. `problems` are only those affecting the current tab or
+ * preventing it from being determined; problems confined to other tabs are
+ * not reported.
+ */
+export interface TodayReminderState {
+  todayEntry: DailyBodyweightEntry | null;
+  measurementCheckInToday: boolean;
+  problems: FormatProblem[];
+}
+
 /** Tracking behaviour of a Coach Template, in domain terms only. */
 export interface TrackingTemplate {
   /** `today` is the Local Calendar Date, YYYY-MM-DD. */
@@ -88,6 +104,14 @@ export interface TrackingTemplate {
     gateway: SpreadsheetGateway,
     today: string
   ): Promise<TrackingReport>;
+  /**
+   * Reads, in one pass, what the Bodyweight and Measurement Reminders need
+   * for `today` (YYYY-MM-DD) from the current Tracking tab only.
+   */
+  readTodayReminderState(
+    gateway: SpreadsheetGateway,
+    today: string
+  ): Promise<TodayReminderState>;
   /**
    * Lists Measurement Check-Ins from every Tracking tab in date order, each
    * dated within the year of its own tab.
