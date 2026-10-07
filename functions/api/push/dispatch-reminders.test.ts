@@ -1,19 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { PushNotificationPayload } from '../../../src/contracts/push';
-import type { ReminderGateway } from '../../lib/reminders';
+import { FakeSpreadsheet, trackingTabGrid } from '../../testing/fake-spreadsheet';
 import type { HabitsGateway } from '../../lib/streaks';
 import type { UserId } from '../../lib/users';
 import { addSubscription } from '../../lib/push-store';
 import { localDateTime } from '../../lib/local-date';
 import { handleDispatchRemindersRequest } from './dispatch-reminders';
-
-const SHEETS_EPOCH = Date.UTC(1899, 11, 30);
-const DAY = 86_400_000;
-
-function serial(isoDate: string): number {
-  return (Date.parse(`${isoDate}T00:00:00Z`) - SHEETS_EPOCH) / DAY;
-}
 
 interface UserResult {
   id: UserId;
@@ -50,13 +43,21 @@ function makeMockKV(): KVNamespace {
   } as unknown as KVNamespace;
 }
 
-function makeGateway(weight: unknown, measurementDates: unknown[]): ReminderGateway {
-  return {
-    readRanges: async () => [
-      [['Date', 'Weight'], [serial('2026-07-01'), weight]],
-      [['Month'], ...measurementDates.map((date) => [date])],
-    ],
-  };
+function makeGateway(
+  weight: number | null | '',
+  measurementLabels: string[],
+  title = "Tracking '26",
+  date = '2026-07-01'
+): FakeSpreadsheet {
+  return new FakeSpreadsheet([
+    {
+      title,
+      ...trackingTabGrid([[date, weight === '' ? null : weight]], {
+        fields: ['Waist', 'Neck'],
+        checkIns: measurementLabels.map((label) => [label, [null, null]] as const),
+      }),
+    },
+  ]);
 }
 
 function makeHabitsGateway(creatineDates: readonly string[] = []): HabitsGateway {
@@ -513,6 +514,118 @@ describe('POST /api/push/dispatch-reminders', () => {
       sent: 0,
       skipped: 'not-due',
     });
+  });
+
+  it('sends the expected reminders from a Tracking tab named for a later year on a forced run', async () => {
+    const kv = makeMockKV();
+    await addSubscription(kv, 'eduardo', {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+    const notifications: PushNotificationPayload[] = [];
+
+    const response = await handleDispatchRemindersRequest(
+      request('/api/push/dispatch-reminders?force=true'),
+      configuredEnv(kv),
+      {
+        now: () => new Date('2027-07-01T15:00:00Z'),
+        createGateway: () =>
+          makeGateway('', ['July 1st'], "Tracking '27", '2027-07-01'),
+        createHabitsGateway: noHabitsConfigured,
+        sendPush: async (_subscription, notification) => {
+          notifications.push(notification);
+          return { success: true, stale: false, status: 201 };
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const dispatch = await body(response);
+    expect(dispatch.date).toBe('2027-07-01');
+    expect(userOf(dispatch)).toMatchObject({
+      sent: 2,
+      reminders: ['bodyweight', 'measurement'],
+    });
+    expect(notifications.map((item) => item.title)).toEqual([
+      'Bodyweight Reminder',
+      'Measurement Reminder',
+    ]);
+  });
+
+  it('skips Bodyweight and Measurement Reminders on a Tracking problem but still sends creatine and reports source-schema', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const kv = makeMockKV();
+    await addSubscription(kv, 'eduardo', {
+      endpoint: 'https://push.example.com/one',
+      keys: { p256dh: 'dh', auth: 'auth' },
+    });
+    const notifications: PushNotificationPayload[] = [];
+
+    const response = await handleDispatchRemindersRequest(
+      request('/api/push/dispatch-reminders?force=true'),
+      configuredEnvWithHabits(kv),
+      {
+        now: () => new Date('2026-07-02T01:00:00Z'),
+        createGateway: () =>
+          new FakeSpreadsheet([{ title: "Tracking '26", cells: [['Date', 'Weight']] }]),
+        createHabitsGateway: () => makeHabitsGateway([]),
+        sendPush: async (_subscription, notification) => {
+          notifications.push(notification);
+          return { success: true, stale: false, status: 201 };
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(userOf(await body(response))).toMatchObject({
+      sent: 1,
+      reminders: ['creatine'],
+      error: 'source-schema',
+    });
+    expect(notifications.map((item) => item.title)).toEqual(['Creatine Reminder']);
+  });
+
+  it('reports source-schema with nothing sent when a Tracking problem leaves no other reminder due', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnv(makeMockKV()),
+      {
+        now: () => new Date('2026-07-01T11:00:00Z'),
+        createGateway: () =>
+          new FakeSpreadsheet([{ title: "Tracking '26", cells: [['Date', 'Weight']] }]),
+        createHabitsGateway: noHabitsConfigured,
+        sendPush: vi.fn(),
+      }
+    );
+
+    expect(userOf(await body(response))).toMatchObject({
+      sent: 0,
+      reminders: [],
+      error: 'source-schema',
+    });
+  });
+
+  it('reports source-read when the spreadsheet cannot be read', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failing = new FakeSpreadsheet([]);
+    failing.listSheetTitles = async () => {
+      throw new Error('boom');
+    };
+
+    const response = await handleDispatchRemindersRequest(
+      request(),
+      configuredEnv(makeMockKV()),
+      {
+        now: () => new Date('2026-07-01T11:00:00Z'),
+        createGateway: () => failing,
+        createHabitsGateway: noHabitsConfigured,
+        sendPush: vi.fn(),
+      }
+    );
+
+    expect(userOf(await body(response))).toMatchObject({ error: 'source-read' });
   });
 
   it('dispatches each user from their own sheets and subscriptions', async () => {

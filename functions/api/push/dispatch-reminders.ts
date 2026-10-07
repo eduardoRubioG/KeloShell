@@ -3,7 +3,7 @@ import type {
   PushNotificationPayload,
   PushSubscriptionPayload,
 } from '../../../src/contracts/push';
-import { SourceSpreadsheetSchemaError } from '../../lib/format-problems';
+import { resolveCoachTemplate } from '../../coach-templates/registry';
 import {
   addDays,
   localDateTime,
@@ -13,11 +13,11 @@ import {
 } from '../../lib/local-date';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../../lib/google-sheets';
 import {
-  evaluateReminders,
+  evaluateTrackingReminders,
   reminderNotification,
-  type ReminderGateway,
   type ReminderKind,
-} from '../../lib/reminders';
+} from '../../services/reminders';
+import type { SpreadsheetGateway } from '../../lib/spreadsheet-gateway';
 import { readCreatineDates, type HabitsGateway } from '../../lib/streaks';
 import { readLoggedStepsDates } from '../../lib/steps-tracking';
 import {
@@ -58,7 +58,7 @@ interface Env extends UserResolutionEnv, LocalDateEnv {
 
 interface Dependencies {
   now: () => Date;
-  createGateway: (credentials: GoogleSheetsCredentials) => ReminderGateway;
+  createGateway: (credentials: GoogleSheetsCredentials) => SpreadsheetGateway;
   createHabitsGateway: (credentials: GoogleSheetsCredentials) => HabitsGateway;
   sendPush: (
     subscription: PushSubscriptionPayload,
@@ -155,17 +155,21 @@ async function dispatchForUser(
   const minuteOfDay = local.hour * 60 + local.minute;
   const activeReminders: ReminderKind[] = [];
   let evaluatedAny = false;
+  // A Tracking problem only skips the Tracking reminders; App-Owned Data
+  // reminders below still go out, and the result reports the problem.
+  let trackingError: 'source-schema' | undefined;
 
   if (source && (force || minuteOfDay >= REMINDER_START_MINUTES)) {
     evaluatedAny = true;
     try {
-      activeReminders.push(
-        ...(await evaluateReminders(deps.createGateway(source), local.date))
+      const tracking = await evaluateTrackingReminders(
+        deps.createGateway(source),
+        resolveCoachTemplate(userId),
+        local.date
       );
+      activeReminders.push(...tracking.kinds);
+      if (tracking.trackingProblem) trackingError = 'source-schema';
     } catch (error) {
-      if (error instanceof SourceSpreadsheetSchemaError) {
-        return { id: userId, sent: 0, reminders: [], error: 'source-schema' };
-      }
       console.error(`[push/dispatch-reminders] ${userId} spreadsheet read failed:`, error);
       return { id: userId, sent: 0, reminders: [], error: 'source-read' };
     }
@@ -212,6 +216,9 @@ async function dispatchForUser(
   const delivered = await listDeliveredReminders(kv, userId, local.date);
   const pending = activeReminders.filter((kind) => !delivered.includes(kind));
   if (pending.length === 0) {
+    if (trackingError) {
+      return { id: userId, sent: 0, reminders: [], error: trackingError };
+    }
     return {
       id: userId,
       sent: 0,
@@ -222,7 +229,13 @@ async function dispatchForUser(
 
   const subscriptions = await listSubscriptions(kv, userId);
   if (subscriptions.length === 0) {
-    return { id: userId, sent: 0, reminders: [], skipped: 'no-subscriptions' };
+    return {
+      id: userId,
+      sent: 0,
+      reminders: [],
+      skipped: 'no-subscriptions',
+      ...(trackingError && { error: trackingError }),
+    };
   }
 
   const staleEndpoints = new Set<string>();
@@ -256,7 +269,12 @@ async function dispatchForUser(
     await recordDeliveredReminders(kv, userId, local.date, successfulKinds);
   }
 
-  return { id: userId, sent, reminders: successfulKinds };
+  return {
+    id: userId,
+    sent,
+    reminders: successfulKinds,
+    ...(trackingError && { error: trackingError }),
+  };
 }
 
 function isAuthorized(request: Request, expectedToken: string | undefined): boolean {
