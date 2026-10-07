@@ -1,6 +1,6 @@
 import type { PushNotificationPayload } from '../../src/contracts/push';
 import type { CoachTemplate } from '../coach-templates/types';
-import type { FormatProblem } from '../lib/format-problems';
+import { logFormatProblems } from '../lib/format-problems';
 import { addDays } from '../lib/local-date';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 
@@ -13,7 +13,7 @@ export type ReminderKind =
 
 /**
  * Which Tracking-based reminders are due. `trackingProblem` is true when the
- * Subscriber's Tracking tabs could not be interpreted; both reminders are then
+ * Subscriber's current Tracking tab could not be determined or interpreted; both reminders are then
  * skipped (`kinds` is empty) while App-Owned Data reminders are unaffected.
  */
 export interface TrackingReminders {
@@ -21,40 +21,27 @@ export interface TrackingReminders {
   trackingProblem: boolean;
 }
 
-// Problems are logged here, not in the adapter, so they surface in the
-// Cloudflare logs whichever Coach Template reported them.
-function logProblems(problems: readonly FormatProblem[]): void {
-  if (problems.length > 0) {
-    console.warn('[reminders] source spreadsheet problems', {
-      event: 'tracking-problems',
-      problems,
-    });
-  }
-}
-
 /**
- * Bodyweight Reminder: today has a Daily Bodyweight row with no positive
- * weight. Measurement Reminder: a Measurement Check-In is dated today.
+ * Bodyweight Reminder: the current Tracking tab's row for today has no
+ * positive weight. Measurement Reminder: a Measurement Check-In in the current
+ * Tracking tab is dated today. When no tab holds today, neither is due and
+ * that is not a problem.
  */
 export async function evaluateTrackingReminders(
   gateway: SpreadsheetGateway,
   template: CoachTemplate,
   today: string
 ): Promise<TrackingReminders> {
-  const tracking = await template.tracking.readTracking(gateway, today);
-  const measurements = await template.tracking.readMeasurements(gateway);
-  logProblems(tracking.problems);
-  logProblems(measurements.problems);
+  const state = await template.tracking.readTodayReminderState(gateway, today);
+  logFormatProblems('reminders', 'tracking-problems', state.problems);
 
-  if (tracking.problems.length > 0 || !measurements.ok || measurements.problems.length > 0) {
+  if (state.problems.length > 0) {
     return { kinds: [], trackingProblem: true };
   }
 
   const kinds: ReminderKind[] = [];
-  if (tracking.todayEntry && !tracking.todayEntry.hasValue) kinds.push('bodyweight');
-  if (measurements.response.checkIns.some((checkIn) => checkIn.date === today)) {
-    kinds.push('measurement');
-  }
+  if (state.todayEntry && !state.todayEntry.hasValue) kinds.push('bodyweight');
+  if (state.measurementCheckInToday) kinds.push('measurement');
   return { kinds, trackingProblem: false };
 }
 

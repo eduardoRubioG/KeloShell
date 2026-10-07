@@ -92,10 +92,16 @@ describe('Reminders service', () => {
       ]);
     });
 
-    it('skips both reminders and logs the problem codes when a Tracking tab has a format problem', async () => {
+    it('skips both reminders and logs the problem codes when the current tab has a format problem', async () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const sheet = new FakeSpreadsheet([
-        { title: "Tracking '27", cells: [['Date', 'Weight']] },
+        {
+          title: "Tracking '27",
+          ...trackingTabGrid([['2027-07-01', null]], {
+            fields: [],
+            checkIns: [['July 1st', []]],
+          }),
+        },
       ]);
 
       expect(await evaluateTrackingReminders(sheet, template, '2027-07-01')).toEqual({
@@ -107,10 +113,72 @@ describe('Reminders service', () => {
         expect.objectContaining({
           event: 'tracking-problems',
           problems: expect.arrayContaining([
-            expect.objectContaining({ code: 'missing-month-header' }),
+            expect.objectContaining({ code: 'missing-measurement-fields' }),
           ]),
         })
       );
+    });
+
+    it('skips both reminders when today appears in more than one Tracking tab', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sheet = new FakeSpreadsheet([
+        { title: "Tracking '26", ...trackingTabGrid([['2027-01-01', null]], { fields: FIELDS, checkIns: [] }) },
+        { title: "Tracking '27", ...trackingTabGrid([['2027-01-01', null]], { fields: FIELDS, checkIns: [] }) },
+      ]);
+
+      expect(await evaluateTrackingReminders(sheet, template, '2027-01-01')).toEqual({
+        kinds: [],
+        trackingProblem: true,
+      });
+    });
+
+    it('reminds for a Measurement Check-In on January 1st even when last year ends with one', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sheet = new FakeSpreadsheet([
+        {
+          title: "Tracking '26",
+          ...trackingTabGrid([['2026-12-31', 224]], {
+            fields: FIELDS,
+            checkIns: [['December 1st', [30, 14]], ['January 1st', [null, null]]],
+          }),
+        },
+        {
+          title: "Tracking '27",
+          ...trackingTabGrid([['2027-01-01', 225]], {
+            fields: FIELDS,
+            checkIns: [['January 1st', [null, null]]],
+          }),
+        },
+      ]);
+
+      expect(await evaluateTrackingReminders(sheet, template, '2027-01-01')).toEqual({
+        kinds: ['measurement'],
+        trackingProblem: false,
+      });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('ignores problems confined to another Tracking tab', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sheet = new FakeSpreadsheet([
+        {
+          title: "Tracking '26",
+          ...trackingTabGrid([['2026-12-31', 224]], { fields: [], checkIns: [] }),
+        },
+        {
+          title: "Tracking '27",
+          ...trackingTabGrid([['2027-01-01', null]], {
+            fields: FIELDS,
+            checkIns: [['January 1st', [null, null]]],
+          }),
+        },
+      ]);
+
+      expect(await evaluateTrackingReminders(sheet, template, '2027-01-01')).toEqual({
+        kinds: ['bodyweight', 'measurement'],
+        trackingProblem: false,
+      });
+      expect(warn).not.toHaveBeenCalled();
     });
 
     it('reports a problem when the spreadsheet has no Tracking tab', async () => {
@@ -119,7 +187,7 @@ describe('Reminders service', () => {
 
       const result = await evaluateTrackingReminders(sheet, template, '2027-07-01');
 
-      expect(result.kinds).toEqual([]);
+      expect(result).toEqual({ kinds: [], trackingProblem: true });
     });
   });
 
