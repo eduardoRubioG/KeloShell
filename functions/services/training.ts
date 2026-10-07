@@ -3,18 +3,29 @@ import type {
   TrainingWeeksResponse,
 } from '../../src/contracts/training';
 import type { CoachTemplate, TrainingReport } from '../coach-templates/types';
-import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
+import { FORMAT_MESSAGE, SourceSpreadsheetSchemaError, type FormatProblem } from '../lib/format-problems';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 
 export { LiftLogConflictError, UnknownWorkoutSessionError } from '../lib/lift-log-errors';
 
-const FORMAT_MESSAGE = 'The Source Spreadsheet structure could not be interpreted.';
+// Problems are logged here, not in the adapter, so they surface in the
+// Cloudflare logs whichever Coach Template reported them.
+function logProblems(problems: readonly FormatProblem[]): void {
+  if (problems.length > 0) {
+    console.warn('[training] source spreadsheet problems', {
+      event: 'training-problems',
+      problems,
+    });
+  }
+}
 
-export function readTrainingReport(
+export async function readTrainingReport(
   gateway: SpreadsheetGateway,
   template: CoachTemplate
 ): Promise<TrainingReport> {
-  return template.training.readTraining(gateway);
+  const report = await template.training.readTraining(gateway);
+  logProblems(report.problems);
+  return report;
 }
 
 export async function readTrainingWeeks(
@@ -28,10 +39,15 @@ export async function readTrainingWeeks(
   return report.trainingWeeks;
 }
 
-export function writeLiftLog(
+export async function writeLiftLog(
   gateway: SpreadsheetGateway,
   template: CoachTemplate,
   request: LiftLogRequest
 ): Promise<TrainingWeeksResponse> {
-  return template.training.writeLiftLog(gateway, request);
+  const result = await template.training.writeLiftLog(gateway, request);
+  if (!result.ok) {
+    logProblems(result.problems);
+    throw new SourceSpreadsheetSchemaError(FORMAT_MESSAGE, result.problems);
+  }
+  return result.response;
 }

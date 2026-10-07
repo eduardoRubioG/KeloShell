@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { LiftLogConflictError } from '../lib/lift-log-errors';
 import { resolveCoachTemplate } from '../coach-templates/registry';
-import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
+import { FORMAT_MESSAGE, SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 import {
   fakeSpreadsheetOf,
@@ -711,6 +711,110 @@ describe('writeLiftLog', () => {
         revision: 'stale',
       })
     ).rejects.toBeInstanceOf(LiftLogConflictError);
+  });
+});
+
+describe('problem handling', () => {
+  const droppingGateway = (): SpreadsheetGateway => {
+    const inner = gatewayFor(Array.from({ length: 4 }, () => makeSheet([{ weeks: [] }])));
+    return {
+      ...inner,
+      listSheetTitles: () => inner.listSheetTitles(),
+      readRanges: async (ranges, render) =>
+        (await inner.readRanges(ranges, render)).slice(1),
+    };
+  };
+  const goodSheet = () => makeSheet([{ weeks: [{ displayDate: '6/28', rawDate: '2026-06-28' }] }]);
+  const brokenGateway = () => {
+    const noHeader = { cells: [['Lift', 'Squat']] } as never;
+    return gatewayFor([noHeader, goodSheet(), goodSheet(), goodSheet()]);
+  };
+
+  it('reports an unreadable tab as a blocking problem in the report', async () => {
+    const report = await readTrainingReport(droppingGateway());
+    expect(report.ok).toBe(false);
+    expect(report.problems).toMatchObject([{ code: 'unreadable-tabs', tab: null, cell: null }]);
+  });
+
+  it('refuses a Lift Log write on a broken sheet with a schema error and writes nothing', async () => {
+    const gateway = brokenGateway();
+    const writeRange = vi.spyOn(gateway, 'writeRange');
+    const clearRange = vi.spyOn(gateway, 'clearRange');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const error = await writeLiftLog(gateway, {
+      operation: 'clear',
+      weekId: '2026-06-28',
+      session: 'Upper A',
+      liftId: 'test-lift',
+      revision: 'x',
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+    expect((error as SourceSpreadsheetSchemaError).message).toBe(FORMAT_MESSAGE);
+    expect((error as SourceSpreadsheetSchemaError).problems).toMatchObject([
+      { code: 'missing-week-header', tab: 'Upper A' },
+    ]);
+    expect(writeRange).not.toHaveBeenCalled();
+    expect(clearRange).not.toHaveBeenCalled();
+  });
+
+  it('gives an unreadable tab the plain-language schema error on read', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = await readTrainingWeeks(droppingGateway()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+    expect((error as SourceSpreadsheetSchemaError).message).toBe(FORMAT_MESSAGE);
+  });
+
+  it('logs problems on a blocked read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await readTrainingWeeks(brokenGateway()).catch(() => undefined);
+    expect(warn).toHaveBeenCalledWith('[training] source spreadsheet problems', {
+      event: 'training-problems',
+      problems: [expect.objectContaining({ code: 'missing-week-header' })],
+    });
+    warn.mockRestore();
+  });
+
+  it('logs problems on a refused write', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await writeLiftLog(brokenGateway(), {
+      operation: 'clear',
+      weekId: '2026-06-28',
+      session: 'Upper A',
+      liftId: 'test-lift',
+      revision: 'x',
+    }).catch(() => undefined);
+    expect(warn).toHaveBeenCalledWith(
+      '[training] source spreadsheet problems',
+      expect.objectContaining({ event: 'training-problems' })
+    );
+    warn.mockRestore();
+  });
+
+  it('logs non-blocking problems on an ok read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const badSets = makeSheet([
+      { setsCell: '9', weeks: [{ displayDate: '6/28', rawDate: '2026-06-28' }] },
+    ]);
+    const report = await readTrainingReport(
+      gatewayFor([goodSheet(), goodSheet(), goodSheet(), badSets])
+    );
+    expect(report.ok).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      '[training] source spreadsheet problems',
+      expect.objectContaining({ event: 'training-problems' })
+    );
+    warn.mockRestore();
+  });
+
+  it('does not log when there are no problems', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await readTrainingWeeks(
+      gatewayFor([goodSheet(), goodSheet(), goodSheet(), goodSheet()])
+    );
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 

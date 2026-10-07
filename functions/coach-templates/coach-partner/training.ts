@@ -8,19 +8,26 @@ import type {
   TrainingWeeksResponse,
   TrainingWeekSummary,
 } from '../../../src/contracts/training';
-import { SourceSpreadsheetSchemaError } from '../../lib/format-problems';
 import { LiftLogConflictError, UnknownWorkoutSessionError } from '../../lib/lift-log-errors';
-import type { SpreadsheetGateway } from '../../lib/spreadsheet-gateway';
+import { addDays } from '../../lib/local-date';
+import { tabRange, type SpreadsheetGateway } from '../../lib/spreadsheet-gateway';
 import type { FormatProblem } from '../../lib/format-problems';
-import type { TrainingReport, TrainingTemplate } from '../types';
+import type { LiftLogWriteResult, TrainingReport, TrainingTemplate } from '../types';
+import {
+  cellText,
+  displayCell,
+  formatIsoDate,
+  isBlank,
+  isPositiveDecimal,
+  serialDateToUtc,
+  stableHash,
+} from './cells';
 
 const LIFT_GROUP_WIDTH = 6;
 // Widened from 7 to 14: a Workout Session with more than 7 lift blocks used to
 // silently lose its trailing exercises because the sheet range and this scan
 // limit both capped out at 7 blocks (42 columns, A:AP).
 const MAX_LIFT_GROUPS = 14;
-const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
-
 
 interface ProgrammedLift {
   id: string;
@@ -129,20 +136,9 @@ function toReport(analysis: Analysis): TrainingReport {
   };
 }
 
-function requireUsable(analysis: Analysis): ParsedSession[] {
-  if (hasBlockingProblem(analysis)) {
-    throw new SourceSpreadsheetSchemaError(
-      analysis.problems.find(isBlocking)?.message ??
-        'The Source Spreadsheet structure could not be interpreted.',
-      analysis.problems
-    );
-  }
-  return analysis.sessions;
-}
-
 async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis> {
   const tabNames = await gateway.listSheetTitles();
-  const ranges = tabNames.map((name) => `'${name.replace(/'/g, "''")}'!A:CF`);
+  const ranges = tabNames.map((name) => tabRange(name, 'A:CF'));
   const unformattedGrids = ranges.length
     ? await gateway.readRanges(ranges, 'UNFORMATTED_VALUE')
     : [];
@@ -154,9 +150,10 @@ async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis
     unformattedGrids.length !== tabNames.length ||
     formattedGrids.length !== tabNames.length
   ) {
-    throw new SourceSpreadsheetSchemaError(
-      'The required Workout Session tabs could not be read.',
-      [
+    return {
+      sessionNames: [],
+      sessions: [],
+      problems: [
         {
           code: 'unreadable-tabs',
           tab: null,
@@ -164,8 +161,8 @@ async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis
           message:
             'The Source Spreadsheet returned a different number of tab grids than were requested, so the Workout Session tabs could not be read. Retry; if it persists, check the spreadsheet is shared with the service account.',
         },
-      ]
-    );
+      ],
+    };
   }
 
   const problems: FormatProblem[] = [];
@@ -605,9 +602,12 @@ function detailLift(
 async function writeLiftLog(
   gateway: SpreadsheetGateway,
   request: LiftLogRequest
-): Promise<TrainingWeeksResponse> {
+): Promise<LiftLogWriteResult> {
   const analysis = await analyzeSpreadsheet(gateway);
-  const sessions = requireUsable(analysis);
+  if (hasBlockingProblem(analysis)) {
+    return { ok: false, problems: analysis.problems };
+  }
+  const sessions = analysis.sessions;
   if (!analysis.sessionNames.includes(request.session)) {
     throw new UnknownWorkoutSessionError(request.session);
   }
@@ -651,9 +651,11 @@ async function writeLiftLog(
     ]);
   }
 
-  const response = buildTrainingWeeks(
-    requireUsable(await analyzeSpreadsheet(gateway))
-  );
+  const updated = await analyzeSpreadsheet(gateway);
+  if (hasBlockingProblem(updated)) {
+    return { ok: false, problems: updated.problems };
+  }
+  const response = buildTrainingWeeks(updated.sessions);
   const updatedLift = response.weeks
     .find((candidate) => candidate.id === request.weekId)
     ?.sessions.find((candidate) => candidate.name === request.session)
@@ -673,7 +675,7 @@ async function writeLiftLog(
   if (!confirmed) {
     throw new Error('The Source Spreadsheet did not confirm the Lift Log write.');
   }
-  return response;
+  return { ok: true, response };
 }
 
 function addLiftContext(weeks: TrainingWeekSummary[]): void {
@@ -852,15 +854,6 @@ function liftRevision(
   );
 }
 
-function stableHash(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
 function slugifyLiftName(value: string): string {
   return canonicalLiftName(value).replace(/\s+/g, '-') || 'lift';
 }
@@ -975,41 +968,12 @@ function findLabelRow(
   return -1;
 }
 
-function serialDateToUtc(value: unknown): Date | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return null;
-  }
-  return new Date(SHEETS_EPOCH_UTC + Math.floor(value) * 86_400_000);
-}
-
 function parseMonthDay(value: string): { month: number; day: number } | null {
   const match = /^(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?$/.exec(value.trim());
   if (!match) {
     return null;
   }
   return { month: Number(match[1]), day: Number(match[2]) };
-}
-
-function formatIsoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function addDays(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return formatIsoDate(date);
-}
-
-function cellText(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : String(value ?? '').trim();
-}
-
-function displayCell(value: unknown): string | null {
-  return isBlank(value) ? null : cellText(value);
-}
-
-function isBlank(value: unknown): boolean {
-  return value === undefined || value === null || cellText(value) === '';
 }
 
 function parseWholeNumber(value: unknown): number | null {
@@ -1040,11 +1004,6 @@ function parseSetSpec(
     return null;
   }
   return { minSetCount: single, setCount: single };
-}
-
-function isPositiveDecimal(value: unknown): boolean {
-  const parsed = typeof value === 'number' ? value : Number(cellText(value));
-  return Number.isFinite(parsed) && parsed > 0;
 }
 
 function isNonNegativeWholeNumber(value: unknown): boolean {

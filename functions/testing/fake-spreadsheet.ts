@@ -198,6 +198,31 @@ export function workoutSessionGrids(blocks: readonly BlockFixture[]): Required<F
   return { cells, formatted: overlayFormatted(cells, overrides) };
 }
 
+// --- Tracking tab fixtures ----------------------------------------------
+
+/**
+ * Grids of a Tracking tab: a title row, then the Date/Weight/.../Month header
+ * row, then one row per [isoDate, weight] (null leaves the weight blank).
+ */
+export function trackingTabGrid(
+  rows: readonly (readonly [string, number | null])[]
+): Required<FakeTabGrids> {
+  const cells: unknown[][] = [
+    [],
+    ['Date', 'Weight', '', '', '', '', 'Month'],
+    ...rows.map(([isoDate, weight]) => [serialDate(isoDate), weight ?? '']),
+  ];
+  const overrides: unknown[][] = [
+    [],
+    [],
+    ...rows.map(([isoDate]) => {
+      const [, month, day] = isoDate.split('-');
+      return [`${Number(month)}/${Number(day)}`];
+    }),
+  ];
+  return { cells, formatted: overlayFormatted(cells, overrides) };
+}
+
 /** Formatted grid equal to the raw cells, with non-undefined overrides applied on top. */
 export function overlayFormatted(
   cells: readonly unknown[][],

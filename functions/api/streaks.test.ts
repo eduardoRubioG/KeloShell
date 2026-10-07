@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { HabitsGateway } from '../lib/streaks';
-import { BODYWEIGHT_SHEET_NAME } from '../lib/config';
-import { FakeSpreadsheet, serialDate, workoutSessionGrids } from '../testing/fake-spreadsheet';
+import { FakeSpreadsheet, trackingTabGrid, workoutSessionGrids } from '../testing/fake-spreadsheet';
 import { handleStreaksRequest } from './streaks';
 import { handleCreatineLogRequest } from './creatine-log';
 
@@ -49,19 +48,11 @@ function mainSheet(
   }));
   return new FakeSpreadsheet([
     {
-      title: BODYWEIGHT_SHEET_NAME,
-      cells: [
-        [],
-        ['Date', 'Weight'],
-        [serialDate('2026-06-30'), 225.6],
-        [serialDate('2026-07-01'), 226.0],
-      ],
-      formatted: [
-        [],
-        ['Date', 'Weight'],
-        ['6/30', '225.6'],
-        ['7/1', '226.0'],
-      ],
+      title: "Tracking '26",
+      ...trackingTabGrid([
+        ['2026-06-30', 225.6],
+        ['2026-07-01', 226.0],
+      ]),
     },
     ...sessionTabs,
   ]);

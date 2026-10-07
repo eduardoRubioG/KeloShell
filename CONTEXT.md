@@ -240,6 +240,10 @@ _Avoid_: exercise block, column position
 The **Subscriber**'s bodyweight measurement for a specific calendar date.
 _Avoid_: weigh-in
 
+**Tracking Tab**:
+A tab of the **Source Spreadsheet** holding **Daily Bodyweight** and **Measurement Check-In** dates for one stretch of time, typically a year.
+_Avoid_: bodyweight sheet
+
 **Body Measurement**:
 The **Subscriber**'s positive decimal physique measurement for a specific body part on a specific calendar date, expressed in the **Source Spreadsheet**'s implicit unit.
 _Avoid_: body stat, measurement stat

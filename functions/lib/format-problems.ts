@@ -9,6 +9,9 @@ export interface FormatProblem {
   message: string;
 }
 
+/** The plain-language message services attach to a SourceSpreadsheetSchemaError. */
+export const FORMAT_MESSAGE = 'The Source Spreadsheet structure could not be interpreted.';
+
 export class SourceSpreadsheetSchemaError extends Error {
   readonly problems: readonly FormatProblem[];
 

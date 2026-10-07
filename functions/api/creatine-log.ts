@@ -9,7 +9,6 @@ import {
   logCreatine,
   type HabitsGateway,
 } from '../lib/streaks';
-import type { BodyTrackingGateway } from '../lib/body-tracking';
 import {
   getMetaCredentials,
   getSourceCredentials,
@@ -21,7 +20,7 @@ type Env = UserResolutionEnv;
 
 type MainGatewayFactory = (
   credentials: GoogleSheetsCredentials
-) => BodyTrackingGateway & SpreadsheetGateway;
+) => SpreadsheetGateway;
 type HabitsGatewayFactory = (credentials: GoogleSheetsCredentials) => HabitsGateway;
 
 export const onRequest: PagesFunction<Env> = async (context) =>
@@ -63,8 +62,7 @@ export async function handleCreatineLogRequest(
     await logCreatine(habitsGateway, creatineRequest);
     const response = await computeStreaks({
       habitsGateway,
-      bodyweightGateway: mainGateway,
-      trainingGateway: mainGateway,
+      sourceGateway: mainGateway,
       template: resolveCoachTemplate(userId),
       today: creatineRequest.date,
     });

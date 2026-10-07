@@ -7,6 +7,7 @@ import type {
 } from '../../src/contracts/measurements';
 import { BODYWEIGHT_SHEET_NAME } from './config';
 import { SourceSpreadsheetSchemaError } from './format-problems';
+import { tabRange } from './spreadsheet-gateway';
 
 const SHEETS_EPOCH_UTC = Date.UTC(1899, 11, 30);
 const MONTHS = new Map(
@@ -26,6 +27,7 @@ const MONTHS = new Map(
   ].map((month, index) => [month, index + 1])
 );
 
+/** @deprecated Only types the hard-coded `Tracking '26` read/write; Measurement Check-Ins move to SpreadsheetGateway and the Coach Template in #22. */
 export interface MeasurementTrackingGateway {
   readRanges(
     ranges: readonly string[],
@@ -66,11 +68,11 @@ interface ParsedSheet {
   rows: ParsedCheckInRow[];
 }
 
+/** @deprecated Reads the hard-coded `Tracking '26` tab; Measurement Check-Ins are read across Tracking tabs in #22. */
 async function readParsedSheet(
   gateway: MeasurementTrackingGateway
 ): Promise<ParsedSheet> {
-  const escapedName = BODYWEIGHT_SHEET_NAME.replace(/'/g, "''");
-  const sheetRange = `'${escapedName}'!G:Z`;
+  const sheetRange = tabRange(BODYWEIGHT_SHEET_NAME, 'G:Z');
   const [unformatted] = await gateway.readRanges([sheetRange], 'UNFORMATTED_VALUE');
   const [formatted] = await gateway.readRanges([sheetRange], 'FORMATTED_VALUE');
 
@@ -129,6 +131,7 @@ async function readParsedSheet(
   };
 }
 
+/** @deprecated Writes to the hard-coded `Tracking '26` tab; Measurement Check-Ins are saved across Tracking tabs in #22. */
 export async function saveMeasurementCheckIn(
   gateway: MeasurementTrackingGateway,
   request: MeasurementCheckInSaveRequest
@@ -175,6 +178,7 @@ export async function saveMeasurementCheckIn(
   return response;
 }
 
+/** @deprecated Reads the hard-coded `Tracking '26` tab; Measurement Check-Ins are read across Tracking tabs in #22. */
 export async function readMeasurements(
   gateway: MeasurementTrackingGateway
 ): Promise<MeasurementsResponse> {

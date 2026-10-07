@@ -4,6 +4,13 @@ import type {
   PushSubscriptionPayload,
 } from '../../../src/contracts/push';
 import { SourceSpreadsheetSchemaError } from '../../lib/format-problems';
+import {
+  addDays,
+  localDateTime,
+  resolveTimeZone,
+  type LocalDateEnv,
+  type LocalDateTime,
+} from '../../lib/local-date';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../../lib/google-sheets';
 import {
   evaluateReminders,
@@ -32,8 +39,7 @@ import {
   type UserResolutionEnv,
 } from '../../lib/users';
 
-const DEFAULT_TIME_ZONE = 'America/New_York';
-const BODY_TRACKING_START_MINUTES = 7 * 60; // 07:00 local
+const REMINDER_START_MINUTES = 7 * 60; // 07:00 local
 const STEPS_MORNING_START_MINUTES = 7 * 60 + 30; // 07:30 local
 const MORNING_END_MINUTES = 12 * 60; // noon; keeps the morning steps prompt out of the evening
 const CREATINE_START_MINUTES = 21 * 60; // 21:00 local
@@ -42,13 +48,12 @@ const STEPS_EVENING_START_MINUTES = 22 * 60; // 22:00 local
 // The cron worker calls this endpoint with an Access service token, so there is
 // no per-request user identity. Instead the dispatcher fans out over every
 // configured user, reading each one's own spreadsheets and push subscriptions.
-interface Env extends UserResolutionEnv {
+interface Env extends UserResolutionEnv, LocalDateEnv {
   PUSH_KV?: KVNamespace;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
   REMINDER_DISPATCH_TOKEN?: string;
-  REMINDER_TIME_ZONE?: string;
 }
 
 interface Dependencies {
@@ -68,12 +73,6 @@ const defaultDependencies: Dependencies = {
   createHabitsGateway: (credentials) => new GoogleSheetsClient(credentials),
   sendPush: sendWebPush,
 };
-
-interface LocalDateTime {
-  date: string;
-  hour: number;
-  minute: number;
-}
 
 interface UserDispatchResult {
   id: UserId;
@@ -108,7 +107,7 @@ export async function handleDispatchRemindersRequest(
   try {
     local = localDateTime(
       dependencies.now(),
-      env.REMINDER_TIME_ZONE ?? DEFAULT_TIME_ZONE
+      resolveTimeZone(env)
     );
   } catch {
     return json({ error: 'The reminder timezone is invalid.' }, 500);
@@ -157,7 +156,7 @@ async function dispatchForUser(
   const activeReminders: ReminderKind[] = [];
   let evaluatedAny = false;
 
-  if (source && (force || minuteOfDay >= BODY_TRACKING_START_MINUTES)) {
+  if (source && (force || minuteOfDay >= REMINDER_START_MINUTES)) {
     evaluatedAny = true;
     try {
       activeReminders.push(
@@ -258,41 +257,6 @@ async function dispatchForUser(
   }
 
   return { id: userId, sent, reminders: successfulKinds };
-}
-
-export function localDateTime(now: Date, timeZone: string): LocalDateTime {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(now);
-  const value = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((part) => part.type === type)?.value;
-  const year = value('year');
-  const month = value('month');
-  const day = value('day');
-  const hour = Number(value('hour'));
-  const minute = Number(value('minute'));
-  if (
-    !year ||
-    !month ||
-    !day ||
-    !Number.isInteger(hour) ||
-    !Number.isInteger(minute)
-  ) {
-    throw new Error('The Local Calendar Date could not be determined.');
-  }
-  return { date: `${year}-${month}-${day}`, hour, minute };
-}
-
-function addDays(isoDate: string, days: number): string {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }
 
 function isAuthorized(request: Request, expectedToken: string | undefined): boolean {

@@ -1,4 +1,4 @@
-import type { SpreadsheetGateway } from './spreadsheet-gateway';
+import { tabRange, type SpreadsheetGateway } from './spreadsheet-gateway';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
@@ -191,8 +191,7 @@ export class GoogleSheetsClient implements SpreadsheetGateway {
   }
 
   private range(sheetName: string, cell: string): string {
-    const escapedSheetName = sheetName.replace(/'/g, "''");
-    return encodeURIComponent(`'${escapedSheetName}'!${cell}`);
+    return encodeURIComponent(tabRange(sheetName, cell));
   }
 
   private async getAccessToken(): Promise<string> {
