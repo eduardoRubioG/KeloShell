@@ -200,18 +200,38 @@ export function workoutSessionGrids(blocks: readonly BlockFixture[]): Required<F
 
 // --- Tracking tab fixtures ----------------------------------------------
 
+/** Measurement Check-In section of a Tracking tab, in columns G onward. */
+export interface MeasurementFixture {
+  fields: string[];
+  /** [Month label, one value per field (null leaves it blank)]. */
+  checkIns: readonly (readonly [string, readonly (number | null)[]])[];
+}
+
 /**
  * Grids of a Tracking tab: a title row, then the Date/Weight/.../Month header
- * row, then one row per [isoDate, weight] (null leaves the weight blank).
+ * row, then one row per [isoDate, weight] (null leaves the weight blank). With
+ * `measurements`, the Month header is followed by its Measurement Fields and
+ * check-in rows run alongside the daily rows.
  */
 export function trackingTabGrid(
-  rows: readonly (readonly [string, number | null])[]
+  rows: readonly (readonly [string, number | null])[],
+  measurements?: MeasurementFixture
 ): Required<FakeTabGrids> {
   const cells: unknown[][] = [
     [],
-    ['Date', 'Weight', '', '', '', '', 'Month'],
+    ['Date', 'Weight', '', '', '', '', 'Month', ...(measurements?.fields ?? [])],
     ...rows.map(([isoDate, weight]) => [serialDate(isoDate), weight ?? '']),
   ];
+  measurements?.checkIns.forEach(([label, values], index) => {
+    const row = (cells[index + 2] = cells[index + 2] ?? []);
+    while (row.length < 6) {
+      row.push('');
+    }
+    row[6] = label;
+    values.forEach((value, valueIndex) => {
+      row[7 + valueIndex] = value ?? '';
+    });
+  });
   const overrides: unknown[][] = [
     [],
     [],

@@ -4,6 +4,10 @@ import type {
   DailyBodyweightRequest,
 } from '../../src/contracts/body';
 import type {
+  MeasurementCheckInSaveRequest,
+  MeasurementsResponse,
+} from '../../src/contracts/measurements';
+import type {
   LiftLogRequest,
   TrainingWeeksResponse,
 } from '../../src/contracts/training';
@@ -58,6 +62,20 @@ export interface TrackingReport {
   problems: FormatProblem[];
 }
 
+/**
+ * What a Coach Template found when reading Measurement Check-Ins across every
+ * Tracking tab. `ok` is false when no Tracking tab yielded Measurement Fields;
+ * otherwise problems in individual tabs are reported alongside a usable result.
+ */
+export type MeasurementsReport =
+  | { ok: true; response: MeasurementsResponse; problems: FormatProblem[] }
+  | { ok: false; problems: FormatProblem[] };
+
+/** The outcome of a Measurement Check-In write: saved, or refused with problems. */
+export type MeasurementCheckInWriteResult =
+  | { ok: true; response: MeasurementsResponse }
+  | { ok: false; problems: FormatProblem[] };
+
 /** The outcome of a Daily Bodyweight write: saved, or refused with problems. */
 export type TrackingWriteResult =
   | { ok: true; response: BodyweightResponse }
@@ -71,6 +89,11 @@ export interface TrackingTemplate {
     today: string
   ): Promise<TrackingReport>;
   /**
+   * Lists Measurement Check-Ins from every Tracking tab in date order, each
+   * dated within the year of its own tab.
+   */
+  readMeasurements(gateway: SpreadsheetGateway): Promise<MeasurementsReport>;
+  /**
    * Saves or clears Daily Bodyweight for an existing date, whichever Tracking
    * tab holds it. Throws BodyweightConflictError for a stale revision or a
    * date not in the Source Spreadsheet. Refuses without writing, reporting
@@ -80,6 +103,18 @@ export interface TrackingTemplate {
     gateway: SpreadsheetGateway,
     request: DailyBodyweightRequest
   ): Promise<TrackingWriteResult>;
+  /**
+   * Saves the given Measurement Field values on the Measurement Check-In with
+   * the request's date, in the Tracking tab it was read from; other fields
+   * are left alone. Throws MeasurementCheckInConflictError for a stale
+   * revision or a date that is not a check-in, and TypeError for unknown
+   * fields or non-positive values. Refuses without writing, reporting
+   * problems, when the date is duplicated across tabs.
+   */
+  writeMeasurementCheckIn(
+    gateway: SpreadsheetGateway,
+    request: MeasurementCheckInSaveRequest
+  ): Promise<MeasurementCheckInWriteResult>;
 }
 
 export interface CoachTemplate {

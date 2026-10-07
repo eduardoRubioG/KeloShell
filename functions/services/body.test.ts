@@ -13,7 +13,10 @@ import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import {
   BodyweightConflictError,
   readBodyweight,
+  readMeasurements,
   readTodayBodyweight,
+  MeasurementCheckInConflictError,
+  writeMeasurementCheckIn,
   readTrackingReport,
   writeDailyBodyweight,
 } from './body';
@@ -380,6 +383,255 @@ describe('Body service', () => {
       expect(training.problems.length).toBeGreaterThan(0);
       expect(tracking.problems).toEqual([]);
       expect(tracking.todayEntry).toMatchObject({ date: '2026-12-31' });
+    });
+  });
+
+  describe('readMeasurements', () => {
+    const fields = ['Waist', 'Neck'];
+    const withCheckIns = (
+      title: string,
+      rows: [string, number | null][],
+      checkIns: [string, (number | null)[]][]
+    ) => ({ title, ...trackingTabGrid(rows, { fields, checkIns }) });
+
+    it("lists Measurement Check-Ins from both Tracking tabs, each dated within its own tab's year", async () => {
+      const sheet = new FakeSpreadsheet([
+        withCheckIns(
+          "Tracking '26",
+          [['2026-01-01', 225]],
+          [
+            ['January 1st', [32, 15]],
+            ['November 1st', [31, null]],
+            ['December 1st', [30.5, 14.5]],
+          ]
+        ),
+        withCheckIns(
+          "Tracking '27",
+          [['2027-01-01', 224]],
+          [
+            ['January 1st', [30, 14]],
+            ['February 1st', [null, null]],
+          ]
+        ),
+      ]);
+
+      const response = await readMeasurements(sheet, template);
+
+      expect(response.tabAvailable).toBe(true);
+      expect(response.fields).toEqual([
+        { id: 'waist', label: 'Waist' },
+        { id: 'neck', label: 'Neck' },
+      ]);
+      expect(response.checkIns.map((c) => [c.date, c.label, c.status])).toEqual([
+        ['2026-01-01', 'January 1st', 'complete'],
+        ['2026-11-01', 'November 1st', 'partial'],
+        ['2026-12-01', 'December 1st', 'complete'],
+        ['2027-01-01', 'January 1st', 'complete'],
+        ['2027-02-01', 'February 1st', 'empty'],
+      ]);
+      expect(response.checkIns[1].values).toEqual({ waist: '31', neck: null });
+      expect(response.unitLabel).toBe('in');
+    });
+
+    it('treats formula errors and blank cells as no value', async () => {
+      const sheet = new FakeSpreadsheet([
+        withCheckIns("Tracking '26", [['2026-03-01', 225]], [['March 1st', ['#DIV/0!' as unknown as number, null]]]),
+      ]);
+      const response = await readMeasurements(sheet, template);
+      expect(response.checkIns[0]).toMatchObject({
+        status: 'empty',
+        values: { waist: null, neck: null },
+      });
+    });
+
+    it('keeps the correct year when the tabs are ordered newest first', async () => {
+      const sheet = new FakeSpreadsheet([
+        withCheckIns("Tracking '27", [['2027-01-01', 224]], [['January 1st', [30, 14]]]),
+        withCheckIns("Tracking '26", [['2026-01-01', 225]], [['January 1st', [32, 15]]]),
+      ]);
+      const response = await readMeasurements(sheet, template);
+      expect(response.checkIns.map((c) => c.date)).toEqual(['2026-01-01', '2027-01-01']);
+    });
+
+    it('reports a Tracking tab without a Month header as a problem and fails when none is usable', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sheet = new FakeSpreadsheet([
+        { title: "Tracking '26", cells: [['Date', 'Weight']] },
+      ]);
+      const error = await readMeasurements(sheet, template).catch((e) => e);
+      expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+      expect(error.problems).toMatchObject([
+        { code: 'missing-month-header', tab: "Tracking '26" },
+      ]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a Tracking tab without Measurement Fields as a problem and fails when none is usable', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sheet = new FakeSpreadsheet([
+        {
+          title: "Tracking '26",
+          cells: [['Date', 'Weight', '', '', '', '', 'Month']],
+        },
+      ]);
+      const error = await readMeasurements(sheet, template).catch((e) => e);
+      expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+      expect(error.problems).toMatchObject([
+        { code: 'missing-measurement-fields', tab: "Tracking '26", cell: 'G1' },
+      ]);
+    });
+
+    it('still lists the usable tab, logging a problem, when another tab lacks Measurement Fields', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sheet = new FakeSpreadsheet([
+        {
+          title: "Tracking '26",
+          cells: [[], ['Date', 'Weight', '', '', '', '', 'Month']],
+        },
+        withCheckIns("Tracking '27", [['2027-01-01', 224]], [['January 1st', [30, 14]]]),
+      ]);
+      const response = await readMeasurements(sheet, template);
+      expect(response.checkIns.map((c) => c.date)).toEqual(['2027-01-01']);
+      expect(warn).toHaveBeenCalledWith('[body] source spreadsheet problems', {
+        event: 'tracking-problems',
+        problems: [expect.objectContaining({ code: 'missing-measurement-fields' })],
+      });
+    });
+
+    it('reports no Tracking tabs as unavailable', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sheet = new FakeSpreadsheet([{ title: 'Notes', cells: [['x']] }]);
+      expect(await readMeasurements(sheet, template)).toEqual({
+        tabAvailable: false,
+        unitLabel: null,
+        fields: [],
+        checkIns: [],
+      });
+    });
+  });
+
+  describe('writeMeasurementCheckIn', () => {
+    const fields = ['Waist', 'Neck'];
+    const tab = (
+      title: string,
+      rows: [string, number | null][],
+      checkIns: [string, (number | null)[]][]
+    ) => ({ title, ...trackingTabGrid(rows, { fields, checkIns }) });
+    const two = () =>
+      new FakeSpreadsheet([
+        tab("Tracking '26", [['2026-01-01', 225]], [['January 1st', [32, 15]], ['December 1st', [null, null]]]),
+        tab("Tracking '27", [['2027-01-01', 224]], [['January 1st', [30, 14]], ['February 1st', [null, null]]]),
+      ]);
+    const cell = (sheet: FakeSpreadsheet, title: string, ref: string) =>
+      sheet
+        .readRanges([`'${title.replace(/'/g, "''")}'!${ref}`], 'UNFORMATTED_VALUE')
+        .then((r) => r[0][0]?.[0]);
+    async function revisionOf(sheet: FakeSpreadsheet, date: string) {
+      const { checkIns } = await readMeasurements(sheet, template);
+      return checkIns.find((c) => c.date === date)!.revision;
+    }
+
+    it("writes a '26 check-in into the '26 tab and a '27 check-in into the '27 tab", async () => {
+      const sheet = two();
+      await writeMeasurementCheckIn(sheet, template, {
+        date: '2026-12-01',
+        revision: await revisionOf(sheet, '2026-12-01'),
+        values: { waist: 33.5 },
+      });
+      expect(await cell(sheet, "Tracking '26", 'H4')).toBe(33.5);
+      expect(await cell(sheet, "Tracking '27", 'H4')).toBe('');
+
+      const response = await writeMeasurementCheckIn(sheet, template, {
+        date: '2027-02-01',
+        revision: await revisionOf(sheet, '2027-02-01'),
+        values: { waist: 29, neck: 13.5 },
+      });
+      expect(await cell(sheet, "Tracking '27", 'H4')).toBe(29);
+      expect(await cell(sheet, "Tracking '27", 'I4')).toBe(13.5);
+      expect(await cell(sheet, "Tracking '26", 'I4')).toBe('');
+      const updated = response.checkIns.find((c) => c.date === '2027-02-01');
+      expect(updated).toMatchObject({ status: 'complete', values: { waist: '29', neck: '13.5' } });
+    });
+
+    it('writes only the requested fields and returns a new revision', async () => {
+      const sheet = two();
+      const before = await revisionOf(sheet, '2026-12-01');
+      const response = await writeMeasurementCheckIn(sheet, template, {
+        date: '2026-12-01',
+        revision: before,
+        values: { waist: 33.5 },
+      });
+      const updated = response.checkIns.find((c) => c.date === '2026-12-01')!;
+      expect(updated).toMatchObject({ status: 'partial', values: { waist: '33.5', neck: null } });
+      expect(updated.revision).not.toBe(before);
+    });
+
+    it('refuses a stale revision, writing nothing', async () => {
+      const sheet = two();
+      await expect(
+        writeMeasurementCheckIn(sheet, template, {
+          date: '2026-12-01',
+          revision: 'stale',
+          values: { waist: 33 },
+        })
+      ).rejects.toBeInstanceOf(MeasurementCheckInConflictError);
+      expect(await cell(sheet, "Tracking '26", 'H4')).toBe('');
+    });
+
+    it('conflicts when the date is not a Measurement Check-In', async () => {
+      const sheet = two();
+      await expect(
+        writeMeasurementCheckIn(sheet, template, {
+          date: '2026-05-05',
+          revision: 'x',
+          values: { waist: 33 },
+        })
+      ).rejects.toBeInstanceOf(MeasurementCheckInConflictError);
+    });
+
+    it('rejects unknown fields and non-positive values with a TypeError, writing nothing', async () => {
+      const sheet = two();
+      const revision = await revisionOf(sheet, '2026-12-01');
+      for (const values of [{ hips: 30 }, { waist: -1 }, {}]) {
+        await expect(
+          writeMeasurementCheckIn(sheet, template, { date: '2026-12-01', revision, values })
+        ).rejects.toBeInstanceOf(TypeError);
+      }
+      expect(await cell(sheet, "Tracking '26", 'H4')).toBe('');
+    });
+
+    it('refuses a date present in two tabs with problems, writing nothing', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sheet = new FakeSpreadsheet([
+        tab("Tracking '26", [['2026-12-31', 225]], [['December 1st', [null, null]]]),
+        tab("Tracking '27", [['2026-12-31', 224]], [['December 1st', [null, null]]]),
+      ]);
+      const error = await writeMeasurementCheckIn(sheet, template, {
+        date: '2026-12-01',
+        revision: await revisionOf(sheet, '2026-12-01'),
+        values: { waist: 33 },
+      }).catch((e) => e);
+      expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+      expect(error.problems).toMatchObject([{ code: 'duplicate-measurement-date' }]);
+      expect(warn).toHaveBeenCalledWith('[body] source spreadsheet problems', {
+        event: 'tracking-problems',
+        problems: [expect.objectContaining({ code: 'duplicate-measurement-date' })],
+      });
+      expect(await cell(sheet, "Tracking '26", 'H3')).toBe('');
+      expect(await cell(sheet, "Tracking '27", 'H3')).toBe('');
+    });
+
+    it('fails when the Source Spreadsheet does not confirm the write', async () => {
+      const sheet = two();
+      const revision = await revisionOf(sheet, '2026-12-01');
+      sheet.writeRange = async () => {};
+      await expect(
+        writeMeasurementCheckIn(sheet, template, {
+          date: '2026-12-01',
+          revision,
+          values: { waist: 33 },
+        })
+      ).rejects.toThrow('did not confirm');
     });
   });
 });

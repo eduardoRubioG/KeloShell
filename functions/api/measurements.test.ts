@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import type { MeasurementTrackingGateway } from '../lib/measurement-tracking';
+import type { MeasurementsResponse } from '../../src/contracts/measurements';
+import { FakeSpreadsheet, trackingTabGrid } from '../testing/fake-spreadsheet';
 import { handleMeasurementsRequest } from './measurements';
 
 const configuredEnv = {
@@ -28,45 +29,43 @@ describe('GET /api/measurements', () => {
     expect(response.headers.get('allow')).toBe('GET');
   });
 
-  it('returns measurement fields and check-ins on success', async () => {
+  it('returns measurement fields and check-ins from every Tracking tab', async () => {
     const response = await handleMeasurementsRequest(
       new Request('http://localhost/api/measurements'),
       configuredEnv,
-      () => new ValidMeasurementsGateway()
+      () => twoYearSheet()
     );
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      tabAvailable: boolean;
-      fields: unknown[];
-      checkIns: unknown[];
-    };
+    const body = (await response.json()) as MeasurementsResponse;
     expect(body.tabAvailable).toBe(true);
-    expect(body.fields.length).toBeGreaterThan(0);
-    expect(body.checkIns.length).toBeGreaterThan(0);
+    expect(body.fields).toEqual([{ id: 'waist', label: 'Waist' }]);
+    expect(body.checkIns.map((c) => c.date)).toEqual(['2026-12-01', '2027-01-01']);
+  });
+
+  it('answers 422 when a Tracking tab has no Month header', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await handleMeasurementsRequest(
+      new Request('http://localhost/api/measurements'),
+      configuredEnv,
+      () => new FakeSpreadsheet([{ title: "Tracking '26", cells: [['Date', 'Weight']] }])
+    );
+    expect(response.status).toBe(422);
   });
 });
 
-class ValidMeasurementsGateway implements MeasurementTrackingGateway {
-  async readRanges(
-    _ranges: readonly string[],
-    option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE'
-  ): Promise<unknown[][][]> {
-    const raw = [
-      [],
-      [],
-      [],
-      ['', 'Mandatory', '', '', 'Recommended'],
-      ['Month', 'Waist', 'Neck'],
-      ['January 1st', 32, 15],
-    ];
-    const fmt = [
-      [],
-      [],
-      [],
-      ['', 'Mandatory', '', '', 'Recommended'],
-      ['Month', 'Waist', 'Neck'],
-      ['January 1st', '32', '15'],
-    ];
-    return [option === 'UNFORMATTED_VALUE' ? raw : fmt];
-  }
+function twoYearSheet(): FakeSpreadsheet {
+  const measurements = (label: string) => ({
+    fields: ['Waist'],
+    checkIns: [[label, [32]]] as [string, number[]][],
+  });
+  return new FakeSpreadsheet([
+    {
+      title: "Tracking '26",
+      ...trackingTabGrid([['2026-01-01', 225]], measurements('December 1st')),
+    },
+    {
+      title: "Tracking '27",
+      ...trackingTabGrid([['2027-01-01', 224]], measurements('January 1st')),
+    },
+  ]);
 }
