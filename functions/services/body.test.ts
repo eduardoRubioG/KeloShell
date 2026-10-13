@@ -89,7 +89,6 @@ describe('Body service', () => {
     ]);
 
     const response = await readBodyweight(sheet, template, '2026-06-30');
-    expect(response.tabAvailable).toBe(true);
     expect(response.entries).toMatchObject([
       { date: '2026-06-30', weight: '225.6', hasValue: true },
       { date: '2026-07-01', weight: null, hasValue: false },
@@ -198,7 +197,6 @@ describe('Body service', () => {
       },
     ]);
     const response = await readBodyweight(sheet, template, '2026-06-30');
-    expect(response.tabAvailable).toBe(true);
     expect(response.entries).toMatchObject([{ date: '2026-06-30', hasValue: true }]);
   });
 
@@ -421,7 +419,6 @@ describe('Body service', () => {
 
       const response = await readMeasurements(sheet, template);
 
-      expect(response.tabAvailable).toBe(true);
       expect(response.fields).toEqual([
         { id: 'waist', label: 'Waist' },
         { id: 'neck', label: 'Neck' },

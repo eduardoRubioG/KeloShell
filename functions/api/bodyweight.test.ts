@@ -45,8 +45,7 @@ describe('GET /api/bodyweight', () => {
         ])
     );
     expect(response.status).toBe(200);
-    const body = await response.json() as { tabAvailable: boolean; entries: unknown[] };
-    expect(body.tabAvailable).toBe(true);
+    const body = await response.json() as { entries: unknown[] };
     expect(body.entries.map((e) => (e as { date: string }).date)).toEqual([
       '2026-06-29',
       '2027-01-01',
