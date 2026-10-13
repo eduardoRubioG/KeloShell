@@ -97,8 +97,23 @@ export interface TodayReminderState {
   problems: FormatProblem[];
 }
 
+/**
+ * What a Coach Template found when listing its Tracking tabs for `today`.
+ * `tabs` are the Tracking tab titles in spreadsheet order; `currentTab` is the
+ * one whose Date column holds today, null when none does or several do.
+ */
+export interface TrackingTabsReport {
+  tabs: string[];
+  currentTab: string | null;
+}
+
 /** Tracking behaviour of a Coach Template, in domain terms only. */
 export interface TrackingTemplate {
+  /** Lists the Tracking tabs and the current one for `today` (YYYY-MM-DD). */
+  listTrackingTabs(
+    gateway: SpreadsheetGateway,
+    today: string
+  ): Promise<TrackingTabsReport>;
   /** `today` is the Local Calendar Date, YYYY-MM-DD. */
   readTracking(
     gateway: SpreadsheetGateway,
