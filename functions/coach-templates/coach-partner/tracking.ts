@@ -10,6 +10,7 @@ import type {
   MeasurementCheckInWriteResult,
   MeasurementsReport,
   TrackingReport,
+  TrackingTabsReport,
   TrackingTemplate,
   TodayReminderState,
   TrackingWriteResult,
@@ -37,6 +38,7 @@ import {
 // section, which can sit in a different row).
 
 export const coachPartnerTracking: TrackingTemplate = {
+  listTrackingTabs,
   readTracking,
   readTodayReminderState,
   writeDailyBodyweight,
@@ -49,6 +51,20 @@ async function readTracking(
   today: string
 ): Promise<TrackingReport> {
   return buildReport(await discoverTrackingTabs(gateway), today);
+}
+
+async function listTrackingTabs(
+  gateway: SpreadsheetGateway,
+  today: string
+): Promise<TrackingTabsReport> {
+  const tabs = await discoverTrackingTabs(gateway);
+  const holding = tabs.filter((tab) =>
+    tab.entries.some((found) => found.entry.date === today)
+  );
+  return {
+    tabs: tabs.map((tab) => tab.title),
+    currentTab: holding.length === 1 ? holding[0].title : null,
+  };
 }
 
 // The current Tracking tab is the one whose Date column holds today. Problems

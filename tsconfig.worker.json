@@ -12,6 +12,6 @@
     "noImplicitReturns": true,
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["functions/**/*.ts", "src/contracts/**/*.ts"],
+  "include": ["functions/**/*.ts", "src/contracts/**/*.ts", "scripts/validate-sheet-core.ts"],
   "exclude": ["functions/**/*.test.ts"]
 }
