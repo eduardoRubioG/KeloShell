@@ -7,7 +7,7 @@ import {
   type GoogleSheetsCredentials,
 } from '../lib/google-sheets';
 import { resolveCoachTemplate } from '../coach-templates/registry';
-import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
+import { formatProblemsBody, SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
 import { readTrainingWeeks } from '../services/training';
 import {
@@ -55,10 +55,7 @@ export async function handleTrainingWeeksRequest(
     return json(response, 200);
   } catch (error) {
     if (error instanceof SourceSpreadsheetSchemaError) {
-      return json(
-        { error: 'The Source Spreadsheet structure could not be interpreted.' },
-        422
-      );
+      return json(formatProblemsBody(error), 422);
     }
     return json({ error: 'The Source Spreadsheet could not be read.' }, 502);
   }

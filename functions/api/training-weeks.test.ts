@@ -68,8 +68,9 @@ describe('GET /api/training-weeks', () => {
     );
 
     expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({
-      error: 'The Source Spreadsheet structure could not be interpreted.',
+    expect(await response.json()).toMatchObject({
+      error: "Your coach's spreadsheet needs a fix.",
+      problems: [expect.objectContaining({ code: 'missing-week-header' })],
     });
   });
 
@@ -197,6 +198,16 @@ class ThrowingGateway extends FakeSpreadsheet {
 
 class SchemaErrorGateway extends FakeSpreadsheet {
   constructor() {
-    super([{ title: 'Upper A', cells: [['Lift', 'Squat']] }]);
+    const good = workoutSessionGrids([
+      { weeks: [{ displayDate: '6/28', rawDate: '2026-06-28' }] },
+    ]);
+    const extra = [['Lift', 'Squat']];
+    super([
+      {
+        title: 'Upper A',
+        cells: [...good.cells, ...extra],
+        formatted: [...good.formatted, ...extra],
+      },
+    ]);
   }
 }

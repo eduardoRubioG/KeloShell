@@ -68,8 +68,18 @@ export interface TrainingWeeksResponse {
   weeks: TrainingWeekSummary[];
 }
 
+/** A violated Source Spreadsheet format rule, as reported on a 422. */
+export interface SheetProblem {
+  code: string;
+  tab: string | null;
+  cell: string | null;
+  message: string;
+}
+
 export interface ApiErrorResponse {
   error: string;
+  /** Present on a 422: the Source Spreadsheet problems behind the error. */
+  problems?: SheetProblem[];
 }
 
 export type LiftLogRequest =

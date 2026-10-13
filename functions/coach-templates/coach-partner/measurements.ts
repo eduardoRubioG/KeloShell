@@ -97,6 +97,16 @@ export function duplicateMeasurementDateProblem(date: string): FormatProblem {
   };
 }
 
+export function noTrackingTabsProblem(): FormatProblem {
+  return {
+    code: 'no-tracking-tabs',
+    tab: null,
+    cell: null,
+    message:
+      'No Tracking tab with Date/Weight headers in columns A:B and a Month header in column G was found.',
+  };
+}
+
 export function buildMeasurementsReport(
   tabs: readonly TrackingTab[]
 ): MeasurementsReport {
@@ -114,13 +124,7 @@ export function buildMeasurementsReport(
 
   if (parsed.length === 0) {
     if (problems.length === 0) {
-      problems.push({
-        code: 'no-tracking-tabs',
-        tab: null,
-        cell: null,
-        message:
-          'No Tracking tab with Date/Weight headers in columns A:B and a Month header in column G was found.',
-      });
+      problems.push(noTrackingTabsProblem());
       return {
         ok: true,
         response: { tabAvailable: false, unitLabel: null, fields: [], checkIns: [] },

@@ -38,6 +38,9 @@ export async function readBodyweight(
   today: string
 ): Promise<BodyweightResponse> {
   const report = await readTrackingReport(gateway, template, today);
+  if (!report.tabAvailable) {
+    throw new SourceSpreadsheetSchemaError(FORMAT_MESSAGE, report.problems);
+  }
   return { tabAvailable: report.tabAvailable, entries: report.entries };
 }
 
@@ -70,7 +73,7 @@ export async function readMeasurements(
 ): Promise<MeasurementsResponse> {
   const report = await template.tracking.readMeasurements(gateway);
   logProblems(report.problems);
-  if (!report.ok) {
+  if (!report.ok || !report.response.tabAvailable) {
     throw new SourceSpreadsheetSchemaError(FORMAT_MESSAGE, report.problems);
   }
   return report.response;

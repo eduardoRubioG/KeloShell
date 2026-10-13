@@ -1,7 +1,7 @@
 import type { ApiErrorResponse } from '../../src/contracts/training';
 import type { BodyweightResponse } from '../../src/contracts/body';
 import { GoogleSheetsClient, type GoogleSheetsCredentials } from '../lib/google-sheets';
-import { SourceSpreadsheetSchemaError } from '../lib/format-problems';
+import { formatProblemsBody, SourceSpreadsheetSchemaError } from '../lib/format-problems';
 import { resolveCoachTemplate } from '../coach-templates/registry';
 import { todayLocalCalendarDate, type LocalDateEnv } from '../lib/local-date';
 import type { SpreadsheetGateway } from '../lib/spreadsheet-gateway';
@@ -46,10 +46,7 @@ export async function handleBodyweightRequest(
     return json(response, 200);
   } catch (error) {
     if (error instanceof SourceSpreadsheetSchemaError) {
-      return json(
-        { error: 'The Source Spreadsheet structure could not be interpreted.' },
-        422
-      );
+      return json(formatProblemsBody(error), 422);
     }
     return json({ error: 'The Source Spreadsheet could not be read.' }, 502);
   }
