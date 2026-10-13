@@ -19,7 +19,18 @@ export function StreaksSection({ today }: StreaksSectionProps) {
     return <StreaksSkeleton />;
   }
 
-  if (query.isError || !query.data) {
+  if (query.isError) {
+    // Contained to this widget: the rest of the page keeps working.
+    return (
+      <div className="mt-5" role="status">
+        <p className="rounded-control border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-medium text-danger">
+          Streaks are unavailable. {query.error.message}
+        </p>
+      </div>
+    );
+  }
+
+  if (!query.data) {
     return null;
   }
 
