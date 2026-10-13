@@ -14,6 +14,7 @@
     "deploy": "npm run build && wrangler pages deploy dist",
     "build": "tsc --noEmit && tsc -p tsconfig.worker.json && vite build",
     "test": "vitest run",
+    "validate-sheet": "node scripts/validate-sheet.mjs",
     "test:watch": "vitest",
     "start": "npm run dev",
     "start-remote": "npm run build && wrangler pages dev dist --ip 0.0.0.0 --port 5173"
