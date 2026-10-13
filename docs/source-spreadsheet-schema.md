@@ -211,3 +211,25 @@ not block still appears in logs; the affected lift is simply not offered.
 Problem codes and messages appear in API responses and in Cloudflare logs under
 `source spreadsheet problems`. Reminder dispatch uses the same services, so it
 logs the same codes.
+
+## Validating a Source Spreadsheet
+
+The operator can check any Source Spreadsheet, before enrolment, after a coach
+edit, or ahead of the year change, with a read-only command:
+
+```bash
+npm run validate-sheet -- <spreadsheetId> [YYYY-MM-DD]
+```
+
+The date defaults to today in the reminder time zone (`America/New_York`) and
+decides which Tracking tab is current. The script runs the same Validation
+service and Coach Template adapter as runtime requests, using the shared service
+account. Credentials come from `GOOGLE_SERVICE_ACCOUNT_EMAIL` and
+`GOOGLE_PRIVATE_KEY`, read from the environment or from `.dev.vars` (see
+`.dev.vars.example`); the sheet must be shared with that service account.
+
+It prints the Workout Sessions in Session Order, every Tracking tab, the current
+Tracking tab for the date (or `(none)`), and every problem as
+`[rule-code] tab: <tab>, cell: <cell>: <message>`. The exit code is `0` when no
+problem exists, `1` when any problem exists, and `2` when the script could not
+run (bad arguments, missing credentials, or a Google error).
