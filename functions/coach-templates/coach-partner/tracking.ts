@@ -294,7 +294,7 @@ async function writeDailyBodyweight(
   }
   return {
     ok: true,
-    response: { tabAvailable: report.tabAvailable, entries: report.entries },
+    response: { entries: report.entries },
   };
 }
 

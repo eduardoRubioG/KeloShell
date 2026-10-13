@@ -125,11 +125,7 @@ export function buildMeasurementsReport(
   if (parsed.length === 0) {
     if (problems.length === 0) {
       problems.push(noTrackingTabsProblem());
-      return {
-        ok: true,
-        response: { tabAvailable: false, unitLabel: null, fields: [], checkIns: [] },
-        problems,
-      };
+      return { ok: false, problems };
     }
     return { ok: false, problems };
   }
@@ -163,7 +159,6 @@ export function buildMeasurementsReport(
   return {
     ok: true,
     response: {
-      tabAvailable: true,
       unitLabel: parsed[parsed.length - 1].unitLabel,
       fields,
       checkIns: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)),

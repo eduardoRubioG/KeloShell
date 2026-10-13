@@ -14,7 +14,6 @@ export interface MeasurementCheckInEntry {
 }
 
 export interface MeasurementsResponse {
-  tabAvailable: boolean;
   unitLabel: string | null;
   fields: MeasurementField[];
   checkIns: MeasurementCheckInEntry[];

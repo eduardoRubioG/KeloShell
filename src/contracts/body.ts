@@ -6,7 +6,6 @@ export interface DailyBodyweightEntry {
 }
 
 export interface BodyweightResponse {
-  tabAvailable: boolean;
   entries: DailyBodyweightEntry[];
 }
 

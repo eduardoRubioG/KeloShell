@@ -37,7 +37,6 @@ describe('GET /api/measurements', () => {
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as MeasurementsResponse;
-    expect(body.tabAvailable).toBe(true);
     expect(body.fields).toEqual([{ id: 'waist', label: 'Waist' }]);
     expect(body.checkIns.map((c) => c.date)).toEqual(['2026-12-01', '2027-01-01']);
   });
