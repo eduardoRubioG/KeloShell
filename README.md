@@ -118,6 +118,15 @@ The IDE launch task and `npm run start-remote` also run the complete Pages app
 on port 5173. Use `npm run dev:ui` only when API calls are intentionally out of
 scope; Vite alone cannot execute files in `functions/`.
 
+## CI
+
+`.github/workflows/ci.yml` runs the `build-and-test` job on every pull request
+to `main` and every push to `main`: `npm ci`, `npm run build`, a type-check of
+the reminder cron Worker (`npx tsc -p workers/reminder-cron/tsconfig.json`), and
+`npm test`. The job is read-only and uses no secrets. `main` is protected: the
+`build-and-test` check must pass and changes go through a pull request. CI does
+not deploy; production still deploys by hand from `main`.
+
 ## Frontend structure
 
 The frontend uses React, file-based TanStack Router routes, and TanStack Query for same-origin API state. Route files stay thin and delegate UI and domain behavior to feature folders.
