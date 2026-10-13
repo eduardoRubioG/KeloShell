@@ -1,4 +1,4 @@
-import type { ApiErrorResponse } from '../../../contracts/training';
+import { apiErrorFrom } from '../../../app/api-error';
 import type {
   MeasurementCheckInSaveRequest,
   MeasurementsResponse,
@@ -9,10 +9,7 @@ export async function fetchMeasurements(): Promise<MeasurementsResponse> {
     headers: { accept: 'application/json' },
   });
   if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as ApiErrorResponse | null;
-    throw new Error(payload?.error ?? 'Measurement data could not be loaded.');
+    throw await apiErrorFrom(response, 'Measurement data could not be loaded.');
   }
   return (await response.json()) as MeasurementsResponse;
 }
@@ -29,10 +26,7 @@ export async function saveMeasurementCheckIn(
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as ApiErrorResponse | null;
-    throw new Error(payload?.error ?? 'The measurement check-in could not be synced.');
+    throw await apiErrorFrom(response, 'The measurement check-in could not be synced.');
   }
   return (await response.json()) as MeasurementsResponse;
 }

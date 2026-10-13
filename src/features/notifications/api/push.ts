@@ -1,17 +1,16 @@
+import { apiErrorFrom } from '../../../app/api-error';
 import type {
   PushSubscribeRequest,
   PushSubscribeResponse,
   PushSubscriptionPayload,
 } from '../../../contracts/push';
-import type { ApiErrorResponse } from '../../../contracts/training';
 
 export async function fetchVapidPublicKey(): Promise<{ publicKey: string }> {
   const response = await fetch('/api/push/vapid-public-key', {
     headers: { accept: 'application/json' },
   });
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as ApiErrorResponse | null;
-    throw new Error(payload?.error ?? 'Push configuration could not be loaded.');
+    throw await apiErrorFrom(response, 'Push configuration could not be loaded.');
   }
   return (await response.json()) as { publicKey: string };
 }
@@ -26,8 +25,7 @@ export async function subscribePush(
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as ApiErrorResponse | null;
-    throw new Error(payload?.error ?? 'The subscription could not be saved.');
+    throw await apiErrorFrom(response, 'The subscription could not be saved.');
   }
   return (await response.json()) as PushSubscribeResponse;
 }
@@ -39,8 +37,7 @@ export async function unsubscribePush(endpoint: string): Promise<void> {
     body: JSON.stringify({ endpoint }),
   });
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as ApiErrorResponse | null;
-    throw new Error(payload?.error ?? 'The subscription could not be removed.');
+    throw await apiErrorFrom(response, 'The subscription could not be removed.');
   }
 }
 
@@ -50,7 +47,6 @@ export async function sendTestPush(): Promise<void> {
     headers: { accept: 'application/json' },
   });
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as ApiErrorResponse | null;
-    throw new Error(payload?.error ?? 'The test notification could not be sent.');
+    throw await apiErrorFrom(response, 'The test notification could not be sent.');
   }
 }
