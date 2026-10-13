@@ -9,6 +9,7 @@ types
 !.github/workflows/
 .github/workflows/*
 !.github/workflows/reminders.yml
+!.github/workflows/ci.yml
 .dev.vars
 .dev.vars.*
 !.dev.vars.example
