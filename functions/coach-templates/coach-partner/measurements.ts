@@ -125,7 +125,6 @@ export function buildMeasurementsReport(
   if (parsed.length === 0) {
     if (problems.length === 0) {
       problems.push(noTrackingTabsProblem());
-      return { ok: false, problems };
     }
     return { ok: false, problems };
   }
