@@ -169,7 +169,7 @@ async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis
   const discovered: string[] = [];
   const sessions: ParsedSession[] = [];
   tabNames.forEach((name, index) => {
-    if (!hasLiftRow(unformattedGrids[index])) {
+    if (!hasFullProgramDefinition(unformattedGrids[index])) {
       return;
     }
     discovered.push(name);
@@ -189,15 +189,45 @@ async function analyzeSpreadsheet(gateway: SpreadsheetGateway): Promise<Analysis
       tab: null,
       cell: null,
       message:
-        'The Source Spreadsheet contains no Workout Sessions (no tab has a "Lift" row in column A).',
+        'The Source Spreadsheet contains no Workout Sessions (no tab has a Program Definition with "Lift", "Progression", "Sets", "Reps" and "Week" rows in column A).',
     });
   }
   validateMatchingWeekSequences(sessions, problems);
   return { sessionNames: discovered, sessions, problems };
 }
 
-function hasLiftRow(rows: readonly unknown[][]): boolean {
-  return findLabelRow(rows, 0, rows.length, 'Lift') !== -1;
+/**
+ * Workout Session signature: a tab is a Workout Session only when at least one
+ * Program Definition carries the full signature (`Lift`, then `Progression`,
+ * `Sets` and `Reps` before a `Week` header). Partial matches (notes or
+ * template tabs) are ignored silently.
+ */
+function hasFullProgramDefinition(rows: readonly unknown[][]): boolean {
+  for (let definitionRow = 0; definitionRow < rows.length; definitionRow += 1) {
+    if (cellText(rows[definitionRow]?.[0]) !== 'Lift') {
+      continue;
+    }
+    const weekHeaderRow = findWeekHeaderRow(rows, definitionRow);
+    if (
+      weekHeaderRow !== -1 &&
+      REQUIRED_PROGRAM_FIELDS.every(
+        (field) => findLabelRow(rows, definitionRow + 1, weekHeaderRow, field) !== -1
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function findWeekHeaderRow(rows: readonly unknown[][], definitionRow: number): number {
+  const nextDefinitionRow = findNextLabelRow(rows, definitionRow + 1, 'Lift');
+  return findLabelRow(
+    rows,
+    definitionRow + 1,
+    Math.min(nextDefinitionRow, definitionRow + 10),
+    'Week'
+  );
 }
 
 function cellRef(columnIndex: number, rowIndex: number): string {
@@ -235,12 +265,7 @@ function parseSession(
       definitionRow + 1,
       'Lift'
     );
-    const weekHeaderRow = findLabelRow(
-      rawRows,
-      definitionRow + 1,
-      Math.min(nextDefinitionRow, definitionRow + 10),
-      'Week'
-    );
+    const weekHeaderRow = findWeekHeaderRow(rawRows, definitionRow);
     const liftCell = cellRef(0, definitionRow);
     if (weekHeaderRow === -1) {
       block({

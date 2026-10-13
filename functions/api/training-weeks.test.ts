@@ -120,6 +120,26 @@ describe('GET /api/training-weeks', () => {
     expect(await sessionNamesFor(sheet)).toEqual(['Upper A', 'Legs']);
   });
 
+  it('returns 200 for a sheet with Overview-style and New Template-style tabs beside the sessions', async () => {
+    const sheet = new FakeSpreadsheet([
+      { title: 'Overview', cells: [...Array.from({ length: 39 }, () => ['x']), ['Lift', 'Exercise']] },
+      { title: 'Upper A', ...grids() },
+      { title: 'Lower A', ...grids() },
+      { title: 'New Template', cells: [['x'], ['x'], ['Lift', 'Exercise name']] },
+      { title: 'Upper B', ...grids() },
+      { title: 'Lower B', ...grids() },
+    ]);
+
+    const response = await handleTrainingWeeksRequest(
+      new Request('http://localhost/api/training-weeks'),
+      configuredEnv,
+      () => sheet
+    );
+
+    expect(response.status).toBe(200);
+    expect(await sessionNamesFor(sheet)).toEqual(['Upper A', 'Lower A', 'Upper B', 'Lower B']);
+  });
+
   it('ignores tabs that are not Workout Sessions', async () => {
     const sheet = new FakeSpreadsheet([
       { title: 'Notes', cells: [['Remember to stretch']] },
