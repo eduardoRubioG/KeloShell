@@ -16,7 +16,7 @@ describe('GET /api/bodyweight', () => {
       new Request('https://example.com/api/bodyweight'),
       configuredEnv
     );
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(999);
   });
 
   it('rejects unsupported methods', async () => {
