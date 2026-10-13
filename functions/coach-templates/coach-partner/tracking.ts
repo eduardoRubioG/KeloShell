@@ -17,6 +17,7 @@ import type {
 import {
   buildMeasurementsReport,
   duplicateMeasurementDateProblem,
+  noTrackingTabsProblem,
   locateMeasurementCheckIns,
   readTabCheckInDates,
 } from './measurements';
@@ -130,15 +131,7 @@ function buildReport(tabs: TrackingTab[], today: string): TrackingReport {
       tabAvailable: false,
       entries: [],
       todayEntry: null,
-      problems: [
-        {
-          code: 'no-tracking-tabs',
-          tab: null,
-          cell: null,
-          message:
-            'No Tracking tab with Date/Weight headers in columns A:B and a Month header in column G was found.',
-        },
-      ],
+      problems: [noTrackingTabsProblem()],
     };
   }
 
@@ -195,10 +188,11 @@ async function writeMeasurementCheckIn(
   gateway: SpreadsheetGateway,
   request: MeasurementCheckInSaveRequest
 ): Promise<MeasurementCheckInWriteResult> {
-  const found = locateMeasurementCheckIns(
-    await discoverTrackingTabs(gateway),
-    request.date
-  );
+  const tabs = await discoverTrackingTabs(gateway);
+  if (tabs.length === 0) {
+    return { ok: false, problems: [noTrackingTabsProblem()] };
+  }
+  const found = locateMeasurementCheckIns(tabs, request.date);
   if (found.length === 0) {
     throw new MeasurementCheckInConflictError('That date is not in the Source Spreadsheet.');
   }
@@ -246,7 +240,11 @@ async function writeDailyBodyweight(
   request: DailyBodyweightRequest
 ): Promise<TrackingWriteResult> {
   // Past dates live in whichever tab holds them, not necessarily the current one.
-  const found = groupByDate(await discoverTrackingTabs(gateway)).get(request.date);
+  const tabs = await discoverTrackingTabs(gateway);
+  if (tabs.length === 0) {
+    return { ok: false, problems: [noTrackingTabsProblem()] };
+  }
+  const found = groupByDate(tabs).get(request.date);
   if (!found) {
     throw new BodyweightConflictError('That date is not in the Source Spreadsheet.');
   }

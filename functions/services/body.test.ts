@@ -163,12 +163,14 @@ describe('Body service', () => {
     expect(report.todayEntry).toBeNull();
   });
 
-  it('reports no Tracking tabs as unavailable with a problem', async () => {
+  it('refuses to read bodyweight with no Tracking tabs, reporting a problem', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     const sheet = new FakeSpreadsheet([
       { title: 'Notes', cells: [['Date', 'Weight']] },
     ]);
-    const response = await readBodyweight(sheet, template, '2026-07-01');
-    expect(response).toEqual({ tabAvailable: false, entries: [] });
+    const error = await readBodyweight(sheet, template, '2026-07-01').catch((e) => e);
+    expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+    expect(error.problems).toMatchObject([{ code: 'no-tracking-tabs', tab: null }]);
     const report = await readTrackingReport(sheet, template, '2026-07-01');
     expect(report.problems).toMatchObject([{ code: 'no-tracking-tabs', tab: null }]);
   });
@@ -177,7 +179,9 @@ describe('Body service', () => {
     const sheet = new FakeSpreadsheet([
       { title: "Tracking '26", cells: [['Date', 'Weight']] },
     ]);
-    expect((await readBodyweight(sheet, template, '2026-07-01')).tabAvailable).toBe(false);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = await readBodyweight(sheet, template, '2026-07-01').catch((e) => e);
+    expect(error.problems).toMatchObject([{ code: 'no-tracking-tabs' }]);
   });
 
   it('finds a Tracking tab whose Month header is in a different row than Date/Weight', async () => {
@@ -308,7 +312,7 @@ describe('Body service', () => {
       };
       const error = await writeDailyBodyweight(sheet, template, request).catch((e) => e);
       expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
-      expect(error.message).toBe('The Source Spreadsheet structure could not be interpreted.');
+      expect(error.message).toBe("Your coach's spreadsheet needs a fix.");
       expect(error.problems).toMatchObject([{ code: 'duplicate-tracking-date' }]);
       expect(await cell(sheet, "Tracking '26", 3)).toBe(224.5);
       expect(await cell(sheet, "Tracking '27", 3)).toBe(224);
@@ -487,7 +491,9 @@ describe('Body service', () => {
       const sheet = new FakeSpreadsheet([
         { title: "Tracking '26", cells: [['Date', 'Weight']] },
       ]);
-      expect((await readMeasurements(sheet, template)).tabAvailable).toBe(false);
+      const error = await readMeasurements(sheet, template).catch((e) => e);
+      expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+      expect(error.problems).toMatchObject([{ code: 'no-tracking-tabs' }]);
     });
 
     it('reports a Tracking tab without Measurement Fields as a problem and fails when none is usable', async () => {
@@ -522,15 +528,12 @@ describe('Body service', () => {
       });
     });
 
-    it('reports no Tracking tabs as unavailable', async () => {
+    it('refuses when there are no Tracking tabs', async () => {
       vi.spyOn(console, 'warn').mockImplementation(() => {});
       const sheet = new FakeSpreadsheet([{ title: 'Notes', cells: [['x']] }]);
-      expect(await readMeasurements(sheet, template)).toEqual({
-        tabAvailable: false,
-        unitLabel: null,
-        fields: [],
-        checkIns: [],
-      });
+      const error = await readMeasurements(sheet, template).catch((e) => e);
+      expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
+      expect(error.problems).toMatchObject([{ code: 'no-tracking-tabs' }]);
     });
   });
 

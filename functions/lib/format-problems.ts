@@ -10,7 +10,7 @@ export interface FormatProblem {
 }
 
 /** The plain-language message services attach to a SourceSpreadsheetSchemaError. */
-export const FORMAT_MESSAGE = 'The Source Spreadsheet structure could not be interpreted.';
+export const FORMAT_MESSAGE = "Your coach's spreadsheet needs a fix.";
 
 export class SourceSpreadsheetSchemaError extends Error {
   readonly problems: readonly FormatProblem[];
@@ -35,4 +35,12 @@ export function logFormatProblems(
   if (problems.length > 0) {
     console.warn(`[${tag}] source spreadsheet problems`, { event, problems });
   }
+}
+
+/** The 422 response body for a Source Spreadsheet format failure: plain message plus problems. */
+export function formatProblemsBody(error: SourceSpreadsheetSchemaError): {
+  error: string;
+  problems: FormatProblem[];
+} {
+  return { error: error.message, problems: [...error.problems] };
 }
