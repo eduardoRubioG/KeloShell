@@ -21,6 +21,11 @@ const writeLiftLog = (
   request: Parameters<typeof training.writeLiftLog>[2]
 ) => training.writeLiftLog(gateway, template, request);
 const makeSheet = workoutSessionGrids;
+/** A real Workout Session tab (one good block) followed by extra rows, e.g. a malformed block. */
+const sheetWithExtraRows = (extra: unknown[][]) => {
+  const good = makeSheet([{ weeks: [{ displayDate: '6/28', rawDate: '2026-06-28' }] }]);
+  return { cells: [...good.cells, ...extra], formatted: [...good.formatted, ...extra] };
+};
 const readTrainingReport = (gateway: SpreadsheetGateway) =>
   training.readTrainingReport(gateway, template);
 const gatewayFor = fakeSpreadsheetOf;
@@ -726,7 +731,7 @@ describe('problem handling', () => {
   };
   const goodSheet = () => makeSheet([{ weeks: [{ displayDate: '6/28', rawDate: '2026-06-28' }] }]);
   const brokenGateway = () => {
-    const noHeader = { cells: [['Lift', 'Squat']] } as never;
+    const noHeader = sheetWithExtraRows([['Lift', 'Squat']]) as never;
     return gatewayFor([noHeader, goodSheet(), goodSheet(), goodSheet()]);
   };
 
@@ -753,7 +758,7 @@ describe('problem handling', () => {
     expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
     expect((error as SourceSpreadsheetSchemaError).message).toBe(FORMAT_MESSAGE);
     expect((error as SourceSpreadsheetSchemaError).problems).toMatchObject([
-      { code: 'missing-week-header', tab: 'Upper A' },
+      { code: 'missing-week-header', tab: 'Upper A', cell: 'A8' },
     ]);
     expect(writeRange).not.toHaveBeenCalled();
     expect(clearRange).not.toHaveBeenCalled();
@@ -848,26 +853,53 @@ describe('readTrainingReport', () => {
     expect(report).toMatchObject({ ok: true, sessions: ['Upper A', 'Lower A'], problems: [] });
   });
 
+  it('ignores a notes or template tab with Lift but no Week', async () => {
+    const template = { cells: [['Lift', 'Exercise name'], ['Notes', 'fill me in']] };
+    const report = await readTrainingReport(
+      gatewayFor([good(), template, good()], ['Upper A', 'New Template', 'Lower A'])
+    );
+    expect(report).toMatchObject({ ok: true, sessions: ['Upper A', 'Lower A'], problems: [] });
+  });
+
+  it('ignores a tab with Lift and Week but missing Sets', async () => {
+    const partial = {
+      cells: [['Lift', 'Squat'], ['Progression', 'x'], ['Reps', '5'], ['Week', 'Weight'], [serial('2026-06-28')]],
+      formatted: [['Lift', 'Squat'], ['Progression', 'x'], ['Reps', '5'], ['Week', 'Weight'], ['6/28']],
+    };
+    const report = await readTrainingReport(
+      gatewayFor([good(), partial, good()], ['Upper A', 'Overview', 'Lower A'])
+    );
+    expect(report).toMatchObject({ ok: true, sessions: ['Upper A', 'Lower A'], problems: [] });
+  });
+
+  it('still discovers a session tab with one good block and one malformed block, reporting the malformed one', async () => {
+    const mixed = sheetWithExtraRows([['Lift', 'Squat']]);
+    const report = await readTrainingReport(gatewayFor(four({ 1: mixed })));
+    expect(report.sessions).toEqual(DEFAULT_SESSION_TITLES);
+    expect(problemsOf(report)).toEqual([
+      { code: 'missing-week-header', tab: 'Lower A', cell: 'A8' },
+    ]);
+  });
+
   it('reports a missing Week header with tab and cell, still discovering other tabs', async () => {
-    const broken = { cells: [['Lift', 'Squat'], ['Progression', 'x'], ['Sets', 3], ['Reps', '5']] };
+    const broken = sheetWithExtraRows([['Lift', 'Squat'], ['Progression', 'x'], ['Sets', 3], ['Reps', '5']]);
     const report = await readTrainingReport(gatewayFor(four({ 1: broken as never })));
     expect(report.ok).toBe(false);
     expect(report.sessions).toEqual(DEFAULT_SESSION_TITLES);
     expect(problemsOf(report)).toEqual([
-      { code: 'missing-week-header', tab: 'Lower A', cell: 'A1' },
+      { code: 'missing-week-header', tab: 'Lower A', cell: 'A8' },
     ]);
     expect(report.problems[0].message).toContain('Lower A');
   });
 
   it('reports a missing program field', async () => {
-    const broken = {
-      cells: [['Lift', 'Squat'], ['Progression', 'x'], ['Reps', '5'], ['Week', 'Weight'], [serial('2026-06-28')]],
-      formatted: [['Lift', 'Squat'], ['Progression', 'x'], ['Reps', '5'], ['Week', 'Weight'], ['6/28']],
-    };
+    const broken = sheetWithExtraRows([
+      ['Lift', 'Squat'], ['Progression', 'x'], ['Reps', '5'], ['Week', 'Weight'], ['6/28'],
+    ]);
     const report = await readTrainingReport(gatewayFor(four({ 0: broken })));
     expect(report.ok).toBe(false);
     expect(problemsOf(report)).toEqual([
-      { code: 'missing-program-field', tab: 'Upper A', cell: 'A1' },
+      { code: 'missing-program-field', tab: 'Upper A', cell: 'A8' },
     ]);
     expect(report.problems[0].message).toContain('Sets');
   });
@@ -958,24 +990,24 @@ describe('readTrainingReport', () => {
   });
 
   it('collects problems from multiple tabs together', async () => {
-    const noHeader = { cells: [['Lift', 'Squat']] };
+    const noHeader = sheetWithExtraRows([['Lift', 'Squat']]);
     const badSets = makeSheet([{ setsCell: 9, weeks: goodWeeks }]);
     const report = await readTrainingReport(
       gatewayFor(four({ 0: noHeader as never, 2: badSets }))
     );
     expect(report.ok).toBe(false);
     expect(problemsOf(report)).toEqual([
-      { code: 'missing-week-header', tab: 'Upper A', cell: 'A1' },
+      { code: 'missing-week-header', tab: 'Upper A', cell: 'A8' },
       { code: 'set-count-out-of-range', tab: 'Upper B', cell: 'B3' },
     ]);
   });
 
   it('readTrainingWeeks throws a schema error carrying the problems', async () => {
-    const noHeader = { cells: [['Lift', 'Squat']] };
+    const noHeader = sheetWithExtraRows([['Lift', 'Squat']]);
     const error = await readTrainingWeeks(
       gatewayFor(four({ 0: noHeader as never }))
     ).catch((caught) => caught);
     expect(error).toBeInstanceOf(SourceSpreadsheetSchemaError);
-    expect(error.problems).toMatchObject([{ code: 'missing-week-header', tab: 'Upper A', cell: 'A1' }]);
+    expect(error.problems).toMatchObject([{ code: 'missing-week-header', tab: 'Upper A', cell: 'A8' }]);
   });
 });
