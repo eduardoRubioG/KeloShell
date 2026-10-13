@@ -40,6 +40,15 @@ Each tab is organized as repeating vertical program blocks:
 4. Rows below `Week`, up to the next `Lift` row, are existing Training Weeks.
 
 The adapter discovers label rows and does not depend on fixed row numbers.
+
+**Workout Session signature.** A tab is a Workout Session only when at least
+one Program Definition on it carries the full signature: a `Lift` label row,
+then `Progression`, `Sets` and `Reps` rows between `Lift` and `Week`, then a
+`Week` header row. A tab with no full Program Definition (notes, templates,
+archives) is ignored silently and produces no problem. Once a tab qualifies,
+its other malformed Program Definitions still report `missing-week-header` or
+`missing-program-field`.
+
 A programmed lift requires a name, a rep target, and a whole-number set count
 from one through four. A Training Week is unavailable unless all four Workout
 Sessions have at least one usable programmed lift for its program block.
