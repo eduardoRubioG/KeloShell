@@ -45,8 +45,18 @@ const trackingTab = () => ({
   ),
 });
 
-/** A Workout Session tab with a `Lift` label but no `Week` header. */
-const brokenSessionTab = () => ({ title: 'Upper A', cells: [['Lift', 'Squat']] });
+/** A real Workout Session tab followed by a malformed block: a `Lift` label but no `Week` header. */
+const brokenSessionTab = () => {
+  const good = workoutSessionGrids([
+    { weeks: [{ displayDate: '6/29', rawDate: '2026-06-29', weight: 100, sets: [8, 8, 8] }] },
+  ]);
+  const extra = [['Lift', 'Squat']];
+  return {
+    title: 'Upper A',
+    cells: [...good.cells, ...extra],
+    formatted: [...good.formatted, ...extra],
+  };
+};
 
 /** Tracking intact, Workout Session tab broken. */
 const brokenTraining = () =>

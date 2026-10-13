@@ -198,6 +198,16 @@ class ThrowingGateway extends FakeSpreadsheet {
 
 class SchemaErrorGateway extends FakeSpreadsheet {
   constructor() {
-    super([{ title: 'Upper A', cells: [['Lift', 'Squat']] }]);
+    const good = workoutSessionGrids([
+      { weeks: [{ displayDate: '6/28', rawDate: '2026-06-28' }] },
+    ]);
+    const extra = [['Lift', 'Squat']];
+    super([
+      {
+        title: 'Upper A',
+        cells: [...good.cells, ...extra],
+        formatted: [...good.formatted, ...extra],
+      },
+    ]);
   }
 }
