@@ -318,3 +318,91 @@ What the isolation suite proves (`supabase/tests/reminder-settings.test.ts`):
   can't write. An anonymous caller is refused outright.
 
 Each refusal test has a positive control, so a broken payload can't pass it.
+
+## `sheet_write_audit`
+
+The write audit log (#8). Every Sheets write will record which Subscriber wrote
+to which sheet, tab and range, and when. The nightly check uses it to flag
+writes to a sheet the writer doesn't own, and it supports incident
+investigation. This table is built here; writing a row on each Sheets write is
+step 4.
+
+| Column           | Type          | Notes                                                                                  |
+| ---------------- | ------------- | -------------------------------------------------------------------------------------- |
+| `id`             | `bigint`      | Primary key, `generated always as identity`: a client can't set it.                    |
+| `subscriber_id`  | `uuid`        | Not null, default `current_subscriber_id()`, FK to `subscribers` `on delete restrict`. |
+| `spreadsheet_id` | `text`        | Not null. The sheet actually written; not checked against the Subscriber.              |
+| `tab`            | `text`        | Not null.                                                                              |
+| `range`          | `text`        | Not null.                                                                              |
+| `operation`      | `text`        | Not null, check `in ('write', 'clear')`.                                               |
+| `written_at`     | `timestamptz` | Not null, default `now()`. Always set by the database.                                 |
+
+Privileges and RLS:
+
+| Role            | Privileges                                                                   | Policy                                                                         |
+| --------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `anon`          | none                                                                         | none                                                                           |
+| `authenticated` | column-level `insert (subscriber_id, spreadsheet_id, tab, range, operation)` | Insert only where `subscriber_id = current_subscriber_id()`. No select policy. |
+| `service_role`  | all, but see below                                                           | Bypasses RLS; triggers still apply.                                            |
+
+Why:
+
+- **The spreadsheet ID is deliberately not checked.** A write to a sheet the
+  Subscriber doesn't own is exactly what the nightly check exists to catch. If
+  the insert were refused, the misdirected write would go unlogged. So the log
+  records what was sent, and only `subscriber_id` is tied to the caller.
+- **No user `select`.** Subscribers can't read the log, not even their own rows.
+  Only the service role reads it (the nightly check). Because `authenticated`
+  has no `select` privilege, a read is refused outright. For the same reason an
+  insert must not ask for the row back: use `return=minimal` (supabase-js
+  `.insert(row)` without `.select()`), or it fails.
+- **`written_at` and `id` come from the database.** The grant covers only the
+  five columns a caller chooses, so a client-supplied timestamp is refused. The
+  log is evidence and a forgeable time would weaken it.
+- **`subscriber_id` defaults to the caller**, like `daily_steps`, so server
+  code writing with the user's token never has to send it. The Inactive
+  Subscriber and an outsider resolve to `null` and are refused.
+
+### Append-only
+
+- A `before update or delete` row trigger and a `before truncate` statement
+  trigger raise for every role, **including the service role and `postgres`**.
+  The truncate trigger also fires when a truncate cascades from another table.
+- `update`, `delete`, `truncate`, `references` and `trigger` are also revoked
+  from `authenticated`.
+- The trigger function has `set search_path = ''`.
+
+These guarantees hold against the application roles (`authenticated` and
+`service_role`). They don't hold against a database superuser: a superuser can
+set `session_replication_role = replica` (which skips triggers and foreign-key
+checks), disable the triggers, or drop the table. Treat superuser access as
+outside the threat model of this log.
+
+### Deleting a Subscriber
+
+The foreign key is `on delete restrict`, so **a Subscriber with any write
+history can't be hard-deleted**. Deleting a Subscriber who has audit rows is
+refused as a whole: nothing is removed, including the rows that would otherwise
+cascade (steps, habits, reminders). Even if the key were changed to cascade, the
+delete trigger would still refuse. ADR-0003's "deletion at any time" will
+therefore mean deleting App-Owned Data and the Sign-In Account, not the audit
+trail. The privacy terms (#13) should settle this.
+
+What the isolation suite proves (`supabase/tests/sheet-write-audit.test.ts`):
+
+- X can log a write for themselves, stored as sent, with `written_at` from the
+  database; `subscriber_id` defaults to X.
+- X can log a write whose spreadsheet ID is Y's, and the row is stored as sent.
+- X can't insert a row with Y's `subscriber_id`, a `written_at`, an `id`, an
+  unknown `operation`, or ask for the row back.
+- X (and everyone else signed in) can't read any audit rows, including their own.
+- X can't update or delete a row. The service role can read rows, but its
+  update, delete and truncate attempts fail and the rows are unchanged. The
+  truncate case runs through `psql` as `service_role`, since supabase-js can't
+  send `TRUNCATE`.
+- Deleting a Subscriber with audit rows is refused, and the Subscriber and their
+  other rows remain.
+- The Inactive Subscriber, the outsider and anon can't insert.
+
+Rows accumulate across runs (the table is append-only), so the tests identify
+their rows by a unique spreadsheet ID or tab and never assert on totals.
