@@ -144,3 +144,78 @@ What the isolation suite proves (`supabase/tests/subscribers.test.ts`):
   Account that already has one, is refused.
 - Deleting a Sign-In Account that has a Subscriber row is refused (hard delete).
 - Changing a Subscriber's `id` is refused, even from the service role.
+
+## `daily_steps`
+
+One row per Subscriber per local date: that day's step count. App-Owned Data.
+
+| Column          | Type          | Constraints                                                                              |
+| --------------- | ------------- | ---------------------------------------------------------------------------------------- |
+| `subscriber_id` | `uuid`        | Not null, FK → `subscribers(id)` `on delete cascade`, default `current_subscriber_id()`. |
+| `local_date`    | `date`        | Not null. The Subscriber's own calendar day.                                             |
+| `steps`         | `integer`     | Not null, check `> 0`.                                                                   |
+| `updated_at`    | `timestamptz` | Not null, default `now()`, maintained by the `daily_steps_set_updated_at` trigger.       |
+
+Primary key: `(subscriber_id, local_date)`.
+
+## `habit_entries`
+
+One row per Subscriber, habit and local date. A row's presence means the habit
+was done that day. App-Owned Data.
+
+| Column          | Type          | Constraints                                                                              |
+| --------------- | ------------- | ---------------------------------------------------------------------------------------- |
+| `subscriber_id` | `uuid`        | Not null, FK → `subscribers(id)` `on delete cascade`, default `current_subscriber_id()`. |
+| `habit`         | `text`        | Not null, check in (`'creatine'`). New habits widen the check in a later migration.      |
+| `local_date`    | `date`        | Not null.                                                                                |
+| `created_at`    | `timestamptz` | Not null, default `now()`.                                                               |
+
+Primary key: `(subscriber_id, habit, local_date)`.
+
+### Privileges and RLS (both tables)
+
+| Role            | Privileges                             | Policies                                                                                                                   |
+| --------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `anon`          | none                                   | none                                                                                                                       |
+| `authenticated` | `select`, `insert`, `update`, `delete` | One policy per command, each `subscriber_id = current_subscriber_id()`, as both `using` and `with check` where both apply. |
+| `service_role`  | all                                    | Bypasses RLS.                                                                                                              |
+
+Why:
+
+- **A Subscriber fully manages their own rows and touches no one else's.** The
+  `with check` also stops an insert or update from pointing a row at another
+  Subscriber.
+- **Clients never send `subscriber_id`.** The default is the caller's own
+  Subscriber id. For an Inactive Subscriber or an outsider it is `null`, so the
+  insert fails the not-null primary key and RLS, and they read and change
+  nothing (ADR-0006).
+- **A second value for the same date replaces the first.** An Edit overwrites
+  rather than keeping history, so writes are upserts. With `supabase-js`, name
+  the conflict target and omit `subscriber_id`:
+  `upsert(row, { onConflict: 'subscriber_id,local_date' })` (for habit entries,
+  `'subscriber_id,habit,local_date'`). The omitted column takes its default, so
+  the conflict is found on the caller's own row. The upsert needs the insert,
+  update and select grants and policies above.
+- **A Clear is a hard delete.** Removing a value deletes the row; nothing is
+  kept as history.
+- **Bulk inserts must not mix rows with and without `subscriber_id`.** PostgREST
+  fills a column missing from some rows of one request with `null`, not the
+  default, and the insert is then refused. Send the same keys on every row.
+- **`on delete cascade`** removes a Subscriber's rows with the Subscriber. In
+  practice Subscribers are set inactive, not deleted.
+
+What the isolation suite proves (`supabase/tests/app-owned-data.test.ts`, run
+against both tables):
+
+- X inserts without `subscriber_id` (the row is stored as X's), reads, updates
+  and deletes their own rows; a Clear leaves no row behind.
+- A second value for the same date replaces the first through an upsert, and
+  `daily_steps.updated_at` advances.
+- X reads none of Y's rows, can't insert a row with Y's `subscriber_id`, can't
+  move their own row to Y's, and can't update or delete Y's rows (checked
+  against the real rows afterwards).
+- The Inactive Subscriber and the outsider read zero rows with no error, and
+  can neither insert nor change rows. An anonymous caller is refused outright.
+- `steps` of 0 or less and an unknown habit are refused.
+
+Each refusal test has a positive control, so a broken payload can't pass it.
