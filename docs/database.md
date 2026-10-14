@@ -20,10 +20,17 @@ both. Add a section for every new table.
   replaced.
 - **Fail closed.** A caller without an active Enrolment resolves to `null`, and
   `id = null` matches nothing, so they see zero rows everywhere.
-- **Withdraw default privileges.** Supabase grants every table privilege to
-  `anon` and `authenticated` by default. Each table revokes them and grants back
-  only what its policies need. RLS then narrows those grants to the caller's
-  rows. `anon` gets nothing.
+- **Clients get nothing unless a migration grants it.** Out of the box,
+  Supabase's default privileges grant every new table, sequence and function in
+  `public` to `anon` and `authenticated`, and Postgres lets `PUBLIC` execute
+  every new function. The first migration withdraws those defaults for objects
+  created by `postgres`, the role migrations run as. So **every new table and
+  function must `grant` explicitly what clients need** (for example
+  `grant select on table public.x to authenticated`, or `grant execute` on a
+  function an RLS policy calls). Without the grant, clients get a permission
+  error. RLS then narrows table grants to the caller's rows. `anon` gets
+  nothing. `supabase_admin` keeps its own defaults, but `postgres` can't change
+  them and only the platform creates objects as that role.
 - **`updated_at` is kept by a trigger.** Tables with an `updated_at` column use
   the shared `public.set_updated_at()` trigger function.
 - **Additive migrations only.** A migration adds tables, columns, functions,
@@ -84,6 +91,8 @@ Why:
   the future OneSignal `external_id` and the target of the append-only audit
   log, so it must never change. Replacing a Sign-In Account means repointing
   `auth_user_id`.
+- **`id` can't change**, even by the service role: the
+  `subscribers_keep_id` trigger refuses any update that changes it.
 - **`on delete restrict`** means deleting a Sign-In Account that still has a
   Subscriber is refused, rather than cascading into the Subscriber's data or
   audit history.
@@ -108,12 +117,30 @@ no write privileges. A Subscriber can't enrol themselves, reactivate an ended
 Enrolment, or point their row at another Source Spreadsheet: the Source
 Spreadsheet ID never comes from a client.
 
+### Offboarding a Subscriber
+
+To end a Subscriber's access, set `status = 'inactive'`. It takes effect
+immediately: `current_subscriber_id()` returns `null` on their very next request,
+even with an access token that hasn't expired.
+
+**Never soft-delete the Sign-In Account** (`auth.admin.deleteUser(id, true)`).
+A soft delete doesn't remove the `auth.users` row, so `on delete restrict`
+doesn't stop it. It succeeds, leaves the Subscriber `active`, and the
+Subscriber's already-issued access tokens keep working until they expire.
+
+Open question for step 4 (production Auth): should `current_subscriber_id()`
+also require `auth.users.deleted_at is null`? It doesn't today.
+
 What the isolation suite proves (`supabase/tests/subscribers.test.ts`):
 
 - X reads exactly X's row, and Y's row is invisible to X even by id.
-- The Inactive Subscriber, the outsider and an anonymous caller read zero rows.
+- The Inactive Subscriber and the outsider read zero rows, and the read itself
+  succeeds. An anonymous caller's read is refused outright.
+- `current_subscriber_id()` returns X's id to X and Y's to Y, `null` to the
+  Inactive Subscriber and the outsider, and refuses an anonymous caller.
 - No caller can insert a row, update any row (including their own
   `source_spreadsheet_id` or `status`) or delete a row.
 - A second Subscriber with an existing `source_spreadsheet_id`, or for a Sign-In
   Account that already has one, is refused.
-- Deleting a Sign-In Account that has a Subscriber row is refused.
+- Deleting a Sign-In Account that has a Subscriber row is refused (hard delete).
+- Changing a Subscriber's `id` is refused, even from the service role.

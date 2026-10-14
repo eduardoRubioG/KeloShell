@@ -166,8 +166,10 @@ The `isolation` job in `.github/workflows/ci.yml` runs on every pull request to
 `main` and every push to `main`, in parallel with `build-and-test`. It starts a
 pared-down local stack, runs `npx supabase db reset`, runs
 `npm run test:isolation`, and always stops the stack. It uses no secrets. The
-`isolation` check is required on `main` alongside `build-and-test`; a change to
-the schema or its policies merges only when it passes.
+`isolation` check is meant to be required on `main` alongside
+`build-and-test`: add it as a required status check in branch protection once it
+has run for the first time. From then on, a change to the schema or its policies
+merges only when it passes.
 
 ## Frontend structure
 
