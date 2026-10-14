@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 
@@ -5,6 +7,7 @@ import {
   createThrowawaySignInAccount,
   createThrowawaySubscriber,
   getFixtures,
+  subscriberRow,
   throwawayValue,
 } from './support/fixtures';
 
@@ -26,14 +29,19 @@ const targets: [string, string][] = [
   ['the Inactive Subscriber', inactive.subscriberId],
 ];
 
+/**
+ * The rows a signed-in caller can read. The read itself must succeed, so an
+ * empty result is RLS filtering rows out, not a permission error in disguise.
+ */
 async function rowsVisibleTo(
   client: SupabaseClient,
   filter?: { id: string }
 ): Promise<{ id: string }[]> {
   let query = client.from('subscribers').select('*');
   if (filter) query = query.eq('id', filter.id);
-  const { data } = await query;
-  // A refused read (an error, no data) also means nothing is visible.
+  const { data, error } = await query;
+  expect(error).toBeNull();
+  expect(data).not.toBeNull();
   return data ?? [];
 }
 
@@ -75,28 +83,72 @@ describe('reading subscribers', () => {
     expect(await rowsVisibleTo(outsider.client)).toEqual([]);
   });
 
-  it('shows an anonymous caller zero rows', async () => {
-    expect(await rowsVisibleTo(anon)).toEqual([]);
+  it('refuses an anonymous caller outright', async () => {
+    // anon holds no privilege on the table, so the read is an error, not an
+    // empty result.
+    const { data, error } = await anon.from('subscribers').select('*');
+    expect(error).not.toBeNull();
+    expect(data).toBeNull();
+  });
+});
+
+describe('current_subscriber_id()', () => {
+  async function currentSubscriberIdFor(client: SupabaseClient) {
+    const { data, error } = await client.rpc('current_subscriber_id');
+    expect(error).toBeNull();
+    return data;
+  }
+
+  it("gives X X's Subscriber id and Y Y's", async () => {
+    expect(await currentSubscriberIdFor(x.client)).toBe(x.subscriberId);
+    expect(await currentSubscriberIdFor(y.client)).toBe(y.subscriberId);
+  });
+
+  it('gives the Inactive Subscriber null', async () => {
+    expect(await currentSubscriberIdFor(inactive.client)).toBeNull();
+  });
+
+  it('gives a signed-in user with no Subscriber row null', async () => {
+    expect(await currentSubscriberIdFor(outsider.client)).toBeNull();
+  });
+
+  it('refuses an anonymous caller', async () => {
+    const { data, error } = await anon.rpc('current_subscriber_id');
+    expect(error).not.toBeNull();
+    expect(data).toBeNull();
+  });
+});
+
+async function rowsWithSpreadsheet(sourceSpreadsheetId: unknown) {
+  const { data, error } = await service
+    .from('subscribers')
+    .select('id')
+    .eq('source_spreadsheet_id', sourceSpreadsheetId);
+  if (error) throw error;
+  return data.map((row) => row.id);
+}
+
+describe('inserting subscribers', () => {
+  it('accepts the shared insert payload from the service role (control)', async () => {
+    // Proves the payload the refusal tests send is valid, so their refusals
+    // come from who sent it, not from a broken row.
+    const authUserId = await createThrowawaySignInAccount(service);
+    const row = subscriberRow(authUserId);
+
+    const { error } = await service.from('subscribers').insert(row);
+    expect(error).toBeNull();
+    expect(await rowsWithSpreadsheet(row.source_spreadsheet_id)).toHaveLength(
+      1
+    );
   });
 });
 
 describe.each(callers)('writes by %s', (_name, client) => {
   it('cannot insert a Subscriber row', async () => {
-    const sourceSpreadsheetId = throwawayValue('sheet');
-    await client.from('subscribers').insert({
-      auth_user_id: outsider.authUserId,
-      display_name: 'Self-enrolled',
-      source_spreadsheet_id: sourceSpreadsheetId,
-      coach_template: 'coach-partner',
-      status: 'active',
-    });
-
-    const { data, error } = await service
-      .from('subscribers')
-      .select('id')
-      .eq('source_spreadsheet_id', sourceSpreadsheetId);
-    expect(error).toBeNull();
-    expect(data).toEqual([]);
+    // The outsider enrolling themselves is the most tempting insert.
+    const row = subscriberRow(outsider.authUserId);
+    await client.from('subscribers').insert(row);
+    expect(await rowsWithSpreadsheet(row.source_spreadsheet_id)).toEqual([]);
   });
 
   it.each(targets)("cannot update %s's row", async (_target, id) => {
@@ -128,34 +180,26 @@ describe('what the database refuses, even from the service role', () => {
     const authUserId = await createThrowawaySignInAccount(service);
     const existing = await actualRow(x.subscriberId);
 
-    const { error } = await service.from('subscribers').insert({
-      auth_user_id: authUserId,
-      display_name: 'Duplicate sheet',
-      source_spreadsheet_id: existing?.source_spreadsheet_id,
-      coach_template: 'coach-partner',
-      status: 'active',
-    });
+    const { error } = await service.from('subscribers').insert(
+      subscriberRow(authUserId, {
+        sourceSpreadsheetId: String(existing?.source_spreadsheet_id),
+      })
+    );
     expect(error).not.toBeNull();
 
-    const { data } = await service
-      .from('subscribers')
-      .select('id')
-      .eq('source_spreadsheet_id', existing?.source_spreadsheet_id);
-    expect(data?.map((row) => row.id)).toEqual([x.subscriberId]);
+    expect(await rowsWithSpreadsheet(existing?.source_spreadsheet_id)).toEqual([
+      x.subscriberId,
+    ]);
 
     // The throwaway Sign-In Account has no Subscriber, so it can go.
     await service.auth.admin.deleteUser(authUserId);
   });
 
   it('refuses a second Subscriber for the same Sign-In Account', async () => {
-    const { error } = await service.from('subscribers').insert({
-      auth_user_id: x.authUserId,
-      display_name: 'Second X',
-      source_spreadsheet_id: throwawayValue('sheet'),
-      coach_template: 'coach-partner',
-      status: 'active',
-    });
+    const row = subscriberRow(x.authUserId);
+    const { error } = await service.from('subscribers').insert(row);
     expect(error).not.toBeNull();
+    expect(await rowsWithSpreadsheet(row.source_spreadsheet_id)).toEqual([]);
     expect(await rowsVisibleTo(x.client)).toHaveLength(1);
   });
 
@@ -169,6 +213,20 @@ describe('what the database refuses, even from the service role', () => {
     const { data } = await service.auth.admin.getUserById(authUserId);
     expect(data.user?.id).toBe(authUserId);
     expect(await actualRow(subscriberId)).not.toBeNull();
+  });
+
+  it("refuses to change a Subscriber's id", async () => {
+    const { subscriberId } = await createThrowawaySubscriber(service);
+    const before = await actualRow(subscriberId);
+    const newId = randomUUID();
+
+    const { error } = await service
+      .from('subscribers')
+      .update({ id: newId })
+      .eq('id', subscriberId);
+    expect(error).not.toBeNull();
+    expect(await actualRow(subscriberId)).toEqual(before);
+    expect(await actualRow(newId)).toBeNull();
   });
 
   it.each([

@@ -9,11 +9,49 @@ export const FAKE_USER_PASSWORD = 'isolation-suite-password';
 
 export type EnrolmentStatus = 'active' | 'inactive';
 
-export interface SubscriberSpec {
-  email: string;
+/** The columns of a Subscriber row a test or fixture chooses. */
+export interface SubscriberFields {
   displayName: string;
   sourceSpreadsheetId: string;
   status: EnrolmentStatus;
+}
+
+export interface SubscriberSpec extends SubscriberFields {
+  email: string;
+}
+
+/** A `subscribers` insert payload, as the column names PostgREST expects. */
+export interface SubscriberRow {
+  auth_user_id: string;
+  display_name: string;
+  source_spreadsheet_id: string;
+  coach_template: 'coach-partner';
+  status: EnrolmentStatus;
+}
+
+/**
+ * Builds a valid `subscribers` insert payload for a Sign-In Account. Every
+ * insert in the suite goes through it, so a refused insert is refused because
+ * of who sent it or what it duplicates, never because the payload was broken.
+ * Without overrides it uses a unique throwaway Source Spreadsheet ID.
+ */
+export function subscriberRow(
+  authUserId: string,
+  overrides: Partial<SubscriberFields> = {}
+): SubscriberRow {
+  const fields: SubscriberFields = {
+    displayName: 'Throwaway Subscriber',
+    sourceSpreadsheetId: throwawayValue('sheet'),
+    status: 'active',
+    ...overrides,
+  };
+  return {
+    auth_user_id: authUserId,
+    display_name: fields.displayName,
+    source_spreadsheet_id: fields.sourceSpreadsheetId,
+    coach_template: 'coach-partner',
+    status: fields.status,
+  };
 }
 
 /** The fixed fake users every isolation test file shares. */
@@ -98,25 +136,16 @@ async function findSignInAccountId(
 export async function ensureSubscriber(
   service: SupabaseClient,
   authUserId: string,
-  spec: SubscriberSpec
+  fields: SubscriberFields
 ): Promise<string> {
   const { data, error } = await service
     .from('subscribers')
-    .upsert(
-      {
-        auth_user_id: authUserId,
-        display_name: spec.displayName,
-        source_spreadsheet_id: spec.sourceSpreadsheetId,
-        coach_template: 'coach-partner',
-        status: spec.status,
-      },
-      { onConflict: 'auth_user_id' }
-    )
+    .upsert(subscriberRow(authUserId, fields), { onConflict: 'auth_user_id' })
     .select('id')
     .single();
   if (error) {
     throw new Error(
-      `Could not provision Subscriber ${spec.email}: ${error.message}`
+      `Could not provision Subscriber "${fields.displayName}": ${error.message}`
     );
   }
   return data.id;
@@ -175,11 +204,16 @@ export async function createThrowawaySubscriber(
   service: SupabaseClient
 ): Promise<{ authUserId: string; subscriberId: string }> {
   const authUserId = await createThrowawaySignInAccount(service);
-  const subscriberId = await ensureSubscriber(service, authUserId, {
-    email: `throwaway Subscriber for ${authUserId}`,
-    displayName: 'Throwaway Subscriber',
-    sourceSpreadsheetId: throwawayValue('sheet'),
-    status: 'active',
-  });
+  const { data, error } = await service
+    .from('subscribers')
+    .insert(subscriberRow(authUserId))
+    .select('id')
+    .single();
+  if (error) {
+    throw new Error(
+      `Could not create a throwaway Subscriber: ${error.message}`
+    );
+  }
+  const subscriberId: string = data.id;
   return { authUserId, subscriberId };
 }

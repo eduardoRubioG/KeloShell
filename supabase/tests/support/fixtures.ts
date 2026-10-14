@@ -8,6 +8,7 @@ import { createServiceClient } from './provision';
 export {
   createThrowawaySignInAccount,
   createThrowawaySubscriber,
+  subscriberRow,
   throwawayValue,
 } from './provision';
 
