@@ -14,8 +14,12 @@ interface TableCase {
   keyColumns: string[];
   /** A valid row for a date, without subscriber_id. */
   row: (localDate: string) => Row;
-  /** A change that is valid for an existing row. */
-  change: Row;
+  /** A fresh change, valid for an existing row, that the tests can see. */
+  change: () => Row;
+  /** The value that replaces a day's first value in the upsert test. */
+  replacement: (localDate: string) => Row;
+  /** Asserts the upsert left a single row holding the replacement. */
+  expectReplaced: (rows: Row[]) => void;
 }
 
 const tables: TableCase[] = [
@@ -23,15 +27,23 @@ const tables: TableCase[] = [
     table: 'daily_steps',
     keyColumns: ['local_date'],
     row: (localDate) => ({ local_date: localDate, steps: 4000 }),
-    change: { steps: 9000 },
+    change: () => ({ steps: 9000 }),
+    replacement: (localDate) => ({ local_date: localDate, steps: 9000 }),
+    expectReplaced: (rows) => expect(rows.map((r) => r.steps)).toEqual([9000]),
   },
   {
     table: 'habit_entries',
     keyColumns: ['habit', 'local_date'],
     row: (localDate) => ({ habit: 'creatine', local_date: localDate }),
-    change: { created_at: '2001-01-01T00:00:00+00:00' },
+    // Moving an entry to another day is the Edit a client really makes.
+    change: () => ({ local_date: uniqueDate() }),
+    // A habit has no value to replace: a repeat for the same day is a no-op.
+    replacement: (localDate) => ({ habit: 'creatine', local_date: localDate }),
+    expectReplaced: (rows) => expect(rows).toHaveLength(1),
   },
 ];
+
+const stepsCase = tables.find((t) => t.table === 'daily_steps') as TableCase;
 
 const usedDates = new Set<string>();
 
@@ -109,7 +121,7 @@ async function readAll(
 }
 
 describe.each(tables)('$table', (tc) => {
-  const { table, keyColumns, row, change } = tc;
+  const { table, keyColumns, row, change, replacement, expectReplaced } = tc;
   const keyOf = (r: Row) => keyColumns.map((column) => r[column]);
 
   describe('a Subscriber managing their own rows', () => {
@@ -135,24 +147,24 @@ describe.each(tables)('$table', (tc) => {
       const date = uniqueDate();
       await seed(tc, x.subscriberId, date);
 
+      const before = await actualRows(table, [date]);
+      const changes = change();
       const { data, error } = await x.client
         .from(table)
-        .update(change)
+        .update(changes)
         .eq('subscriber_id', x.subscriberId)
         .eq('local_date', date)
         .select();
       expect(error).toBeNull();
       expect(data).toHaveLength(1);
 
-      const [actual] = await actualRows(table, [date]);
-      expect(actual).toMatchObject(
-        Object.fromEntries(
-          Object.entries(change).map(([k, v]) => [
-            k,
-            k === 'created_at' ? expect.any(String) : v,
-          ])
-        )
-      );
+      const after = await actualRows(table, [
+        date,
+        ...[changes.local_date].filter((d): d is string => !!d),
+      ]);
+      expect(after).toHaveLength(1);
+      expect(after[0]).toMatchObject(changes);
+      expect(after).not.toEqual(before);
     });
 
     it('deletes their own row (a Clear is a hard delete)', async () => {
@@ -185,14 +197,14 @@ describe.each(tables)('$table', (tc) => {
       expect(first.error).toBeNull();
       expect(first.data).toHaveLength(1);
 
-      const second = await upsert({ ...row(date), ...change });
+      const second = await upsert(replacement(date));
       expect(second.error).toBeNull();
       expect(second.data).toHaveLength(1);
 
       const rows = await actualRows(table, [date]);
       expect(rows).toHaveLength(1);
       expect(rows[0].subscriber_id).toBe(x.subscriberId);
-      if (table === 'daily_steps') expect(rows[0].steps).toBe(9000);
+      expectReplaced(rows);
     });
   });
 
@@ -241,32 +253,37 @@ describe.each(tables)('$table', (tc) => {
       const before = await actualRows(table, [date]);
 
       // Control: Y can change the very same row with the same payload.
+      const controlChange = change();
       const control = await y.client
         .from(table)
-        .update(change)
+        .update(controlChange)
         .eq('local_date', date)
         .select();
       expect(control.error).toBeNull();
       expect(control.data).toHaveLength(1);
-      const afterControl = await actualRows(table, [date]);
+      const datesInPlay = [
+        date,
+        ...[controlChange.local_date].filter((d): d is string => !!d),
+      ];
+      const afterControl = await actualRows(table, datesInPlay);
+      expect(afterControl).not.toEqual(before);
 
       const update = await x.client
         .from(table)
-        .update(change)
+        .update(change())
         .eq('subscriber_id', y.subscriberId)
-        .eq('local_date', date)
+        .eq('local_date', datesInPlay[datesInPlay.length - 1])
         .select();
       expect(update.data ?? []).toEqual([]);
       const del = await x.client
         .from(table)
         .delete()
         .eq('subscriber_id', y.subscriberId)
-        .eq('local_date', date)
+        .eq('local_date', datesInPlay[datesInPlay.length - 1])
         .select();
       expect(del.data ?? []).toEqual([]);
 
-      expect(afterControl).toHaveLength(before.length);
-      expect(await actualRows(table, [date])).toEqual(afterControl);
+      expect(await actualRows(table, datesInPlay)).toEqual(afterControl);
     });
   });
 
@@ -277,6 +294,9 @@ describe.each(tables)('$table', (tc) => {
     it('reads nothing, without an error', async () => {
       const date = uniqueDate();
       await seed(tc, x.subscriberId, date);
+      // The caller's own row, if they have a Subscriber, is the meaningful one:
+      // an Inactive Subscriber must not see it either.
+      await seed(tc, inactive.subscriberId, date);
       expect(await readAll(client, table, [date])).toEqual([]);
     });
 
@@ -314,7 +334,7 @@ describe.each(tables)('$table', (tc) => {
       const before = await actualRows(table, [date]);
       expect(before).toHaveLength(2);
 
-      await client.from(table).update(change).eq('local_date', date);
+      await client.from(table).update(change()).eq('local_date', date);
       await client.from(table).delete().eq('local_date', date);
 
       expect(await actualRows(table, [date])).toEqual(before);
@@ -381,7 +401,7 @@ describe('what the database refuses', () => {
 describe('updated_at on daily_steps', () => {
   it('moves forward when a row is updated', async () => {
     const date = uniqueDate();
-    const before = await seed(tables[0], x.subscriberId, date);
+    const before = await seed(stepsCase, x.subscriberId, date);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
     const { error } = await x.client
@@ -399,7 +419,7 @@ describe('updated_at on daily_steps', () => {
 
   it('moves forward when an upsert replaces the value', async () => {
     const date = uniqueDate();
-    const before = await seed(tables[0], x.subscriberId, date);
+    const before = await seed(stepsCase, x.subscriberId, date);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
     const { error } = await x.client
