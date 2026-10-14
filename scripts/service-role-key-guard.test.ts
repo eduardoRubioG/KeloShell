@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Rule 6 guard (#44, step 3; ticket #49).
+ * Rule 6 guard, added with the Supabase foundation (rollout step 3, #49).
  *
  * Isolation rule 6 in #8: "the service role is used only by reminder
  * dispatch, the Sheet Health sweep and operator scripts". This test is the
@@ -15,8 +15,9 @@ import { describe, expect, it } from 'vitest';
  * bundle": any match under `src/` (the PWA) fails whatever the allowlist says.
  *
  * Adding an entry to ALLOWLIST is a reviewed one-line change. Expected
- * additions: the enrol and import scripts (step 4), dispatch (step 5) and the
- * sweep (step 8). Never add anything under `src/`.
+ * additions: the enrol and import operator scripts (sign-in and tenancy,
+ * step 4), reminder dispatch (step 5) and the Sheet Health sweep (step 8).
+ * Never add anything under `src/`.
  */
 const KEY_NAME = 'SUPABASE_SERVICE_ROLE_KEY';
 
@@ -103,11 +104,19 @@ const scanTrackedFiles = (): ScannedFile[] => {
     let buffer: Buffer;
     try {
       buffer = readFileSync(resolve(repoRoot, path));
-    } catch {
-      continue; // deleted in the working tree, or a submodule
+    } catch (error) {
+      // Deleted in the working tree, or a submodule directory. Anything else
+      // must fail loudly rather than hide a match.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'EISDIR') continue;
+      throw error;
     }
-    if (buffer.includes(0)) continue; // binary
-    files.push({ path, lines: buffer.toString('utf8').split(/\r?\n/) });
+    // Binary or UTF-16 files are still searched: a NUL byte must not hide the
+    // key. Latin-1 keeps every byte, so an ASCII name is always found.
+    const text = buffer.includes(0)
+      ? buffer.toString('latin1').replace(/\0/g, '')
+      : buffer.toString('utf8');
+    files.push({ path, lines: text.split(/\r?\n/) });
   }
   return files;
 };
