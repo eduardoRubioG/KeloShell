@@ -262,9 +262,9 @@ The time zone defaults to `America/New_York`.
 Why a trigger creates them:
 
 - **Whoever enrols a Subscriber doesn't need to know the defaults.** The
-  step-4 enrol script inserts one `subscribers` row and the database does the
+  enrol script (step 4) inserts one `subscribers` row and the database does the
   rest, in the same transaction, so a Subscriber never exists without settings.
-- **The scheduler can find who is due with a plain query.** Every Subscriber has
+- **The reminder scheduler (step 5) can find who is due with a plain query.** Every Subscriber has
   every row, so "who gets `steps` at 22:00 in their own time zone" is a join on
   `reminder_settings` and `reminder_preferences`, with no "missing row means
   default" case to handle.
@@ -302,8 +302,7 @@ Why:
   a row is inserted or its `time_zone` is written.
 - **Inactive Subscribers and outsiders see nothing** (ADR-0006), and their rows
   are not changed by anyone but the service role.
-- **Not here:** reminder deduplication ("last sent") belongs to the step-5
-  scheduler.
+- **Not here:** reminder deduplication ("last sent") belongs to the reminder scheduler (step 5).
 
 What the isolation suite proves (`supabase/tests/reminder-settings.test.ts`):
 

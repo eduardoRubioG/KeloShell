@@ -58,7 +58,7 @@ async function actualRows(subscriberId: string) {
  * Both tables for the fixture Subscribers. Other test files create throwaway
  * Subscribers concurrently, so a snapshot of every row would be racy.
  */
-async function everyRow() {
+async function fixtureRows() {
   const ids = [x, y, inactive].map((f) => f.subscriberId);
   const prefs = await service
     .from('reminder_preferences')
@@ -88,6 +88,73 @@ async function readTable(client: SupabaseClient, table: string) {
   return data ?? [];
 }
 
+/**
+ * Proves a Subscriber can change their own setting, so a refusal elsewhere in
+ * a test is about who asked or which column, not a broken payload. The change
+ * is undone afterwards.
+ */
+async function expectOwnUpdateWorks(
+  client: SupabaseClient,
+  subscriberId: string
+): Promise<void> {
+  try {
+    const { data, error } = await client
+      .from('reminder_settings')
+      .update({ enabled: false })
+      .eq('subscriber_id', subscriberId)
+      .eq('kind', 'creatine')
+      .select();
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1);
+  } finally {
+    await restoreDefaults(subscriberId);
+  }
+}
+
+/**
+ * Deletes a row through the service client, runs the test body with its key
+ * free, and puts the identical row back. A refused client write then can't be
+ * explained by a primary-key conflict: only grants or RLS can refuse it.
+ */
+async function withRowFreed(
+  table: 'reminder_preferences' | 'reminder_settings',
+  key: Row,
+  body: () => Promise<void>
+): Promise<void> {
+  const removed = await service.from(table).delete().match(key).select();
+  expect(removed.error).toBeNull();
+  expect(removed.data).toHaveLength(1);
+  const row = (removed.data as Row[])[0];
+  try {
+    expect(await countRows(table, key)).toBe(0);
+    await body();
+  } finally {
+    const { error } = await service.from(table).upsert(row);
+    if (error) throw error;
+  }
+}
+
+/**
+ * Positive control for a refused insert: the service role can insert this very
+ * payload into the freed key (it is removed again straight after).
+ */
+async function expectPayloadValid(
+  table: 'reminder_preferences' | 'reminder_settings',
+  payload: Row,
+  key: Row
+): Promise<void> {
+  const inserted = await service.from(table).insert(payload);
+  expect(inserted.error).toBeNull();
+  const removed = await service.from(table).delete().match(key);
+  expect(removed.error).toBeNull();
+}
+
+async function countRows(table: string, key: Row): Promise<number> {
+  const { data, error } = await service.from(table).select('*').match(key);
+  if (error) throw error;
+  return data.length;
+}
+
 describe('default rows', () => {
   it('creates the preferences row and all five settings for a new Subscriber', async () => {
     const { subscriberId } = await createThrowawaySubscriber(service);
@@ -101,12 +168,15 @@ describe('default rows', () => {
     );
   });
 
-  it('gives every existing Subscriber the same rows', async () => {
+  // Runs before any test in this file changes the fixtures' settings.
+  it('gives every existing Subscriber the full default rows', async () => {
     for (const { subscriberId } of [x, y, inactive]) {
       const { preferences, settings } = await actualRows(subscriberId);
-      expect(preferences).toHaveLength(1);
-      expect(settings.map((s) => s.kind)).toEqual(
-        DEFAULT_SETTINGS.map((s) => s.kind)
+      expect(preferences).toEqual([
+        { subscriber_id: subscriberId, time_zone: DEFAULT_TIME_ZONE },
+      ]);
+      expect(settings).toEqual(
+        DEFAULT_SETTINGS.map((d) => ({ subscriber_id: subscriberId, ...d }))
       );
     }
   });
@@ -180,38 +250,61 @@ describe('a Subscriber managing their own reminders', () => {
     }
   });
 
-  it('cannot insert or delete preference or setting rows', async () => {
-    // Control: the service role can delete and re-insert the very same
-    // payloads, so the refusals below are about who is asking.
-    const { subscriberId } = await createThrowawaySubscriber(service);
-    const removed = await service
-      .from('reminder_settings')
-      .delete()
-      .eq('subscriber_id', subscriberId)
-      .eq('kind', 'creatine')
-      .select();
-    expect(removed.error).toBeNull();
-    expect(removed.data).toHaveLength(1);
-    const reinserted = await service.from('reminder_settings').insert({
-      subscriber_id: subscriberId,
-      kind: 'creatine',
-      local_time: '21:00',
-    });
-    expect(reinserted.error).toBeNull();
-
-    const before = await everyRow();
-
-    const insertSetting = await x.client.from('reminder_settings').insert({
+  it('cannot insert preference or setting rows', async () => {
+    const setting = {
       subscriber_id: x.subscriberId,
       kind: 'creatine',
       local_time: '21:00',
-    });
-    expect(insertSetting.error).not.toBeNull();
+    };
+    const pref = {
+      subscriber_id: x.subscriberId,
+      time_zone: DEFAULT_TIME_ZONE,
+    };
 
-    const insertPref = await x.client
-      .from('reminder_preferences')
-      .insert({ subscriber_id: x.subscriberId, time_zone: DEFAULT_TIME_ZONE });
-    expect(insertPref.error).not.toBeNull();
+    // With the key free, only grants or RLS can refuse X's insert.
+    await withRowFreed(
+      'reminder_settings',
+      { subscriber_id: x.subscriberId, kind: 'creatine' },
+      async () => {
+        const { error } = await x.client
+          .from('reminder_settings')
+          .insert(setting);
+        expect(error).not.toBeNull();
+        expect(
+          await countRows('reminder_settings', {
+            subscriber_id: x.subscriberId,
+            kind: 'creatine',
+          })
+        ).toBe(0);
+        await expectPayloadValid('reminder_settings', setting, {
+          subscriber_id: x.subscriberId,
+          kind: 'creatine',
+        });
+      }
+    );
+    await withRowFreed(
+      'reminder_preferences',
+      { subscriber_id: x.subscriberId },
+      async () => {
+        const { error } = await x.client
+          .from('reminder_preferences')
+          .insert(pref);
+        expect(error).not.toBeNull();
+        expect(
+          await countRows('reminder_preferences', {
+            subscriber_id: x.subscriberId,
+          })
+        ).toBe(0);
+        await expectPayloadValid('reminder_preferences', pref, {
+          subscriber_id: x.subscriberId,
+        });
+      }
+    );
+  });
+
+  it('cannot delete preference or setting rows', async () => {
+    const before = await fixtureRows();
+    await expectOwnUpdateWorks(x.client, x.subscriberId);
 
     const deleteSetting = await x.client
       .from('reminder_settings')
@@ -226,7 +319,7 @@ describe('a Subscriber managing their own reminders', () => {
       .eq('subscriber_id', x.subscriberId);
     expect(deletePref.error).not.toBeNull();
 
-    expect(await everyRow()).toEqual(before);
+    expect(await fixtureRows()).toEqual(before);
   });
 
   it("cannot change a row's subscriber_id or kind", async () => {
@@ -234,18 +327,7 @@ describe('a Subscriber managing their own reminders', () => {
     const yBefore = await actualRows(y.subscriberId);
 
     // Control: the same row accepts a legitimate change from X.
-    try {
-      const control = await x.client
-        .from('reminder_settings')
-        .update({ enabled: false })
-        .eq('subscriber_id', x.subscriberId)
-        .eq('kind', 'bodyweight')
-        .select();
-      expect(control.error).toBeNull();
-      expect(control.data).toHaveLength(1);
-    } finally {
-      await restoreDefaults(x.subscriberId);
-    }
+    await expectOwnUpdateWorks(x.client, x.subscriberId);
 
     // Free up a kind first, so a retype could only fail because the column
     // is not updatable, not because it collides with another row's key.
@@ -276,18 +358,31 @@ describe('a Subscriber managing their own reminders', () => {
       await restoreDefaults(x.subscriberId);
     }
 
-    const repointSetting = await x.client
-      .from('reminder_settings')
-      .update({ subscriber_id: y.subscriberId })
-      .eq('subscriber_id', x.subscriberId)
-      .eq('kind', 'bodyweight');
-    expect(repointSetting.error).not.toBeNull();
-
-    const repointPref = await x.client
-      .from('reminder_preferences')
-      .update({ subscriber_id: y.subscriberId })
-      .eq('subscriber_id', x.subscriberId);
-    expect(repointPref.error).not.toBeNull();
+    // Vacate the target keys first, so a repoint can only be refused by grants
+    // or RLS, never by colliding with Y's existing rows.
+    await withRowFreed(
+      'reminder_settings',
+      { subscriber_id: y.subscriberId, kind: 'bodyweight' },
+      async () => {
+        const { error } = await x.client
+          .from('reminder_settings')
+          .update({ subscriber_id: y.subscriberId })
+          .eq('subscriber_id', x.subscriberId)
+          .eq('kind', 'bodyweight');
+        expect(error).not.toBeNull();
+      }
+    );
+    await withRowFreed(
+      'reminder_preferences',
+      { subscriber_id: y.subscriberId },
+      async () => {
+        const { error } = await x.client
+          .from('reminder_preferences')
+          .update({ subscriber_id: y.subscriberId })
+          .eq('subscriber_id', x.subscriberId);
+        expect(error).not.toBeNull();
+      }
+    );
 
     expect(await actualRows(x.subscriberId)).toEqual(before);
     expect(await actualRows(y.subscriberId)).toEqual(yBefore);
@@ -367,13 +462,24 @@ describe('a Subscriber managing their own reminders', () => {
       .eq('kind', 'steps')
       .select();
     expect(control.error).toBeNull();
+    expect(control.data).toHaveLength(1);
 
-    const bad = await service
+    const badKind = await service
       .from('reminder_settings')
       .update({ kind: 'lunch' })
       .eq('subscriber_id', subscriberId)
       .eq('kind', 'steps');
-    expect(bad.error).not.toBeNull();
+    expect(badKind.error).not.toBeNull();
+
+    const badTime = await service
+      .from('reminder_settings')
+      .update({ local_time: '25:00' })
+      .eq('subscriber_id', subscriberId)
+      .eq('kind', 'steps');
+    expect(badTime.error).not.toBeNull();
+    expect((await actualRows(subscriberId)).settings).toContainEqual(
+      expect.objectContaining({ kind: 'steps', local_time: '06:15:00' })
+    );
   });
 });
 
@@ -448,20 +554,9 @@ describe.each([
   });
 
   it('cannot update, insert or delete rows', async () => {
-    const before = await everyRow();
+    const before = await fixtureRows();
     // Control: X's equivalent update works, so the refusals aren't vacuous.
-    try {
-      const control = await x.client
-        .from('reminder_settings')
-        .update({ enabled: false })
-        .eq('subscriber_id', x.subscriberId)
-        .eq('kind', 'creatine')
-        .select();
-      expect(control.error).toBeNull();
-      expect(control.data).toHaveLength(1);
-    } finally {
-      await restoreDefaults(x.subscriberId);
-    }
+    await expectOwnUpdateWorks(x.client, x.subscriberId);
 
     for (const subscriberId of [ownSubscriberId, x.subscriberId].filter(
       (id): id is string => !!id
@@ -480,28 +575,73 @@ describe.each([
       expect(prefs.data ?? []).toEqual([]);
     }
 
-    const insert = await client.from('reminder_settings').insert({
-      subscriber_id: ownSubscriberId ?? x.subscriberId,
-      kind: 'steps',
-      local_time: '22:00',
-    });
-    expect(insert.error).not.toBeNull();
+    // Free the key first, so only grants or RLS can refuse the insert.
+    const target = ownSubscriberId ?? x.subscriberId;
+    await withRowFreed(
+      'reminder_settings',
+      { subscriber_id: target, kind: 'steps' },
+      async () => {
+        const payload = {
+          subscriber_id: target,
+          kind: 'steps',
+          local_time: '22:00',
+        };
+        const { error } = await client
+          .from('reminder_settings')
+          .insert(payload);
+        expect(error).not.toBeNull();
+        expect(
+          await countRows('reminder_settings', {
+            subscriber_id: target,
+            kind: 'steps',
+          })
+        ).toBe(0);
+        await expectPayloadValid('reminder_settings', payload, {
+          subscriber_id: target,
+          kind: 'steps',
+        });
+      }
+    );
+    await withRowFreed(
+      'reminder_preferences',
+      { subscriber_id: target },
+      async () => {
+        const payload = {
+          subscriber_id: target,
+          time_zone: DEFAULT_TIME_ZONE,
+        };
+        const { error } = await client
+          .from('reminder_preferences')
+          .insert(payload);
+        expect(error).not.toBeNull();
+        expect(
+          await countRows('reminder_preferences', { subscriber_id: target })
+        ).toBe(0);
+        await expectPayloadValid('reminder_preferences', payload, {
+          subscriber_id: target,
+        });
+      }
+    );
     const del = await client.from('reminder_settings').delete().neq('kind', '');
     expect(del.error).not.toBeNull();
 
-    expect(await everyRow()).toEqual(before);
+    expect(await fixtureRows()).toEqual(before);
   });
 });
 
 describe('an anonymous caller', () => {
   it('is refused outright on both tables', async () => {
-    for (const table of ['reminder_preferences', 'reminder_settings']) {
+    const writes = [
+      ['reminder_preferences', { time_zone: 'UTC' }],
+      ['reminder_settings', { enabled: false }],
+    ] as const;
+    for (const [table, change] of writes) {
       const read = await anon.from(table).select('*');
       expect(read.error).not.toBeNull();
       const write = await anon
         .from(table)
-        .update({ time_zone: 'UTC' })
-        .neq('subscriber_id', x.subscriberId);
+        .update(change)
+        .eq('subscriber_id', x.subscriberId);
       expect(write.error).not.toBeNull();
     }
   });
