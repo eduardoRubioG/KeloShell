@@ -318,3 +318,111 @@ What the isolation suite proves (`supabase/tests/reminder-settings.test.ts`):
   can't write. An anonymous caller is refused outright.
 
 Each refusal test has a positive control, so a broken payload can't pass it.
+
+## `sheet_write_audit`
+
+The write audit log the isolation rules require (#8). Every Sheets write will record which Subscriber wrote
+to which sheet, tab and range, and when. The nightly check uses it to flag
+writes to a sheet the writer doesn't own, and it supports incident
+investigation. This table is built here; writing a row on each Sheets write is
+step 4.
+
+| Column           | Type          | Notes                                                                                  |
+| ---------------- | ------------- | -------------------------------------------------------------------------------------- |
+| `id`             | `bigint`      | Primary key, `generated always as identity`: a client can't set it.                    |
+| `subscriber_id`  | `uuid`        | Not null, default `current_subscriber_id()`, FK to `subscribers` `on delete restrict`. |
+| `spreadsheet_id` | `text`        | Not null. The sheet actually written; not checked against the Subscriber.              |
+| `tab`            | `text`        | Not null.                                                                              |
+| `range`          | `text`        | Not null.                                                                              |
+| `operation`      | `text`        | Not null, check `in ('write', 'clear')`.                                               |
+| `written_at`     | `timestamptz` | Not null, default `now()`. Always set by the database.                                 |
+
+Privileges and RLS:
+
+| Role            | Privileges                                                                   | Policy                                                                         |
+| --------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `anon`          | none                                                                         | none                                                                           |
+| `authenticated` | column-level `insert (subscriber_id, spreadsheet_id, tab, range, operation)` | Insert only where `subscriber_id = current_subscriber_id()`. No select policy. |
+| `service_role`  | `select`, `insert`, `update`, `delete` (the triggers refuse the last two)    | Bypasses RLS; triggers still apply.                                            |
+
+Why:
+
+- **The spreadsheet ID is deliberately not checked.** A write to a sheet the
+  Subscriber doesn't own is exactly what the nightly check exists to catch. If
+  the insert were refused, the misdirected write would go unlogged. So the log
+  records what was sent, and only `subscriber_id` is tied to the caller.
+- **No user `select`.** Subscribers can't read the log, not even their own rows.
+  Only the service role reads it (the nightly check). Because `authenticated`
+  has no `select` privilege, a read is refused outright. For the same reason an
+  insert must not ask for the row back: use `return=minimal` (supabase-js
+  `.insert(row)` without `.select()`), or it fails.
+- **`written_at` and `id` come from the database.** The grant covers only the
+  five columns a caller chooses, so a client-supplied timestamp is refused. A
+  `before insert` trigger also overwrites `written_at` with `now()` for every
+  role, so even the service role can't backdate a row through PostgREST. The
+  log is evidence and a forgeable time would weaken it. `id` is
+  `generated always`; only the table owner or the service role over raw SQL
+  (`overriding system value`) could choose one, never a client or PostgREST.
+- **`subscriber_id` defaults to the caller**, like `daily_steps`, so server
+  code writing with the user's token never has to send it. The Inactive
+  Subscriber and an outsider resolve to `null` and are refused.
+
+### Append-only
+
+- A `before update or delete` row trigger and a `before truncate` statement
+  trigger raise (SQLSTATE `42501`) for `authenticated` and `service_role`. Triggers
+  aren't RLS, so the service role doesn't bypass them. The truncate trigger also
+  fires when a truncate cascades from another table.
+- `update`, `delete`, `truncate`, `references` and `trigger` are revoked from
+  `authenticated`. From `service_role` we revoke `truncate`, `references`,
+  `trigger` and `maintain`, so it can't attach a trigger of its own that blocks
+  or rewrites inserts. (`update` and `delete` stay granted to it so the
+  triggers are the refusing layer.)
+- The trigger functions have `set search_path = ''`.
+
+These guarantees hold against the application roles (`authenticated` and
+`service_role`). They don't hold against the table owner `postgres` or against
+superusers, which in practice means anyone with the database password. `postgres`
+is not a superuser on Supabase, but as owner it can disable the triggers, set
+`session_replication_role = replica` (which skips triggers and foreign-key
+checks), or update, delete and truncate directly. Treat access to the database
+password as outside the threat model of this log.
+
+### Deleting a Subscriber
+
+The foreign key is `on delete restrict`, so **a Subscriber with any write
+history can't be hard-deleted**. Deleting a Subscriber who has audit rows is
+refused as a whole: nothing is removed, including the rows that would otherwise
+cascade (steps, habits, reminders). Even if the key were changed to cascade, the
+delete trigger would still refuse. ADR-0003's "deletion at any time" will
+therefore mean deleting App-Owned Data and the Sign-In Account, not the audit
+trail. The privacy terms (#13) decide whether "deletion at any time" keeps the
+audit trail.
+
+What the isolation suite proves (`supabase/tests/sheet-write-audit.test.ts`):
+
+- X can log a write for themselves, stored as sent, with `written_at` from the
+  database; `subscriber_id` defaults to X.
+- X can log a write whose spreadsheet ID is Y's, and the row is stored as sent.
+- X can't insert a row with Y's `subscriber_id`, a `written_at`, an `id`, an
+  unknown `operation`, or ask for the row back.
+- X (and everyone else signed in) can't read any audit rows, including their own.
+- X can't update or delete a row. Acted as X over SQL (`psql` as `authenticated`
+  with X's JWT claims), both fail with permission denied (`42501`) and the row is
+  unchanged. A plain supabase-js update would fail for lack of `select` whatever
+  the rules, so it can't prove this.
+- The service role can read rows, but its update, delete and truncate attempts
+  fail and the rows are unchanged, and it can't create a trigger on the table.
+  It can't backdate `written_at` either. Truncate and `create trigger` run
+  through `psql` as `service_role`, since supabase-js can't send them. The
+  suite reads the database URL from `DB_URL`, else `supabase status`, else the
+  local default, and refuses a non-local host.
+- Deleting a Subscriber with audit rows is refused, and the Subscriber and their
+  other rows remain. The error is SQLSTATE `23503` (foreign key).
+- The Inactive Subscriber, the outsider and anon can't insert.
+
+`supabase/tests/cross-cutting.test.ts` also checks that a signed-in account with
+no Subscriber sees no rows in any table, this one included.
+
+Rows accumulate across runs (the table is append-only), so the tests identify
+their rows by a unique spreadsheet ID or tab and never assert on totals.

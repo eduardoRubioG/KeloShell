@@ -124,3 +124,49 @@ function readSupabaseStatus(): string {
     );
   }
 }
+
+/** The local stack's Postgres, the CLI default. Used when nothing else says. */
+export const DEFAULT_LOCAL_DB_URL =
+  'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+
+/** Like `assertLocalSupabaseUrl`, for a Postgres connection URL. */
+export function assertLocalDbUrl(url: string): void {
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    throw new Error(
+      'Isolation suite refused to run: the database URL is not a valid URL. ' +
+        'It only runs against the local stack (npx supabase start).'
+    );
+  }
+  if (!LOCAL_HOSTS.has(hostname)) {
+    throw new Error(
+      `Isolation suite refused to run: the database URL host is "${hostname}", ` +
+        'but it must be 127.0.0.1 or localhost. It only runs against the local ' +
+        'stack (npx supabase start), never a hosted project.'
+    );
+  }
+}
+
+/**
+ * The local Postgres URL for tests that need a SQL session: `DB_URL` from the
+ * environment (CI exports `supabase status -o env`), else `DB_URL` from
+ * `supabase status`, else the local default. Always passes the localhost guard.
+ */
+export function resolveLocalDbUrl(
+  env: Env = process.env,
+  readStatus: () => string = readSupabaseStatus
+): string {
+  let url = env.DB_URL;
+  if (!url) {
+    try {
+      url = parseStatusEnv(readStatus()).DB_URL;
+    } catch {
+      url = undefined;
+    }
+  }
+  const resolved = url || DEFAULT_LOCAL_DB_URL;
+  assertLocalDbUrl(resolved);
+  return resolved;
+}
