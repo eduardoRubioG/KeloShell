@@ -219,3 +219,103 @@ against both tables):
 - `steps` of 0 or less and an unknown habit are refused.
 
 Each refusal test has a positive control, so a broken payload can't pass it.
+
+## `reminder_preferences`
+
+One row per Subscriber: the IANA time zone their reminder times are read in.
+App-Owned Data.
+
+| Column          | Type   | Constraints                                                             |
+| --------------- | ------ | ----------------------------------------------------------------------- |
+| `subscriber_id` | `uuid` | Primary key, FK → `subscribers(id)` `on delete cascade`.                |
+| `time_zone`     | `text` | Not null, default `'America/New_York'`. Must be in `pg_timezone_names`. |
+
+## `reminder_settings`
+
+One row per Subscriber per reminder kind: whether it is on, and the local time of
+day it is sent. App-Owned Data.
+
+| Column          | Type      | Constraints                                                                                         |
+| --------------- | --------- | --------------------------------------------------------------------------------------------------- |
+| `subscriber_id` | `uuid`    | Not null, FK → `subscribers(id)` `on delete cascade`.                                               |
+| `kind`          | `text`    | Not null, check in (`'bodyweight'`, `'measurement'`, `'creatine'`, `'steps'`, `'steps-yesterday'`). |
+| `enabled`       | `boolean` | Not null, default `true`.                                                                           |
+| `local_time`    | `time`    | Not null. The Subscriber's local time of day, read in their `time_zone`.                            |
+
+Primary key: `(subscriber_id, kind)`.
+
+### Default rows
+
+Inserting a Subscriber creates their preferences row and all five settings rows,
+all enabled, with today's behaviour:
+
+| Kind              | Local time |
+| ----------------- | ---------- |
+| `bodyweight`      | 07:00      |
+| `measurement`     | 07:00      |
+| `steps-yesterday` | 07:30      |
+| `creatine`        | 21:00      |
+| `steps`           | 22:00      |
+
+The time zone defaults to `America/New_York`.
+
+Why a trigger creates them:
+
+- **Whoever enrols a Subscriber doesn't need to know the defaults.** The
+  step-4 enrol script inserts one `subscribers` row and the database does the
+  rest, in the same transaction, so a Subscriber never exists without settings.
+- **The scheduler can find who is due with a plain query.** Every Subscriber has
+  every row, so "who gets `steps` at 22:00 in their own time zone" is a join on
+  `reminder_settings` and `reminder_preferences`, with no "missing row means
+  default" case to handle.
+- **The trigger function is not `security definer`.** Subscribers are inserted
+  only by the service role, which can already write both tables, so the function
+  runs with the inserter's own privileges and elevates nothing. It sets
+  `search_path = ''` and schema-qualifies every name.
+
+The migration also **backfills** both tables for Subscribers that already exist
+(`insert ... select from subscribers ... on conflict do nothing`), so it is
+correct on a database that wasn't reset. It is idempotent and never overwrites a
+row a Subscriber has edited.
+
+### Privileges and RLS (both tables)
+
+| Role            | Privileges                                                                   | Policies                                                                          |
+| --------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `anon`          | none                                                                         | none                                                                              |
+| `authenticated` | `select`; column-level `update (time_zone)` / `update (enabled, local_time)` | Select and update where `subscriber_id = current_subscriber_id()`, own rows only. |
+| `service_role`  | all                                                                          | Bypasses RLS.                                                                     |
+
+Why:
+
+- **No user insert or delete.** The rows exist from enrolment on. A reminder is
+  turned off with `enabled = false`, never by removing its row, so the scheduler
+  never has to tell "off" from "missing".
+- **`subscriber_id` and `kind` can't be changed by a client.** Column-level
+  grants withhold `update` on them, on top of the RLS `using`/`with check`, so a
+  Subscriber can't repoint or retype a row at all.
+- **An invalid time zone is refused.** A `before insert or update of time_zone`
+  trigger checks the value against `pg_timezone_names` (the zone names Postgres
+  itself understands, so the scheduler can always convert with them). It
+  applies to every role, the service role included. `pg_timezone_names` can be
+  slow to scan, so the check is a single `exists` on the name and only runs when
+  a row is inserted or its `time_zone` is written.
+- **Inactive Subscribers and outsiders see nothing** (ADR-0006), and their rows
+  are not changed by anyone but the service role.
+- **Not here:** reminder deduplication ("last sent") belongs to the step-5
+  scheduler.
+
+What the isolation suite proves (`supabase/tests/reminder-settings.test.ts`):
+
+- A new Subscriber gets exactly the default preferences row and five settings.
+- X reads and updates their own time zone and settings (creatine off, steps to
+  21:30), and the suite restores X's and Y's defaults afterwards.
+- X reads none of Y's rows and updates none (Y's rows are checked unchanged).
+- X can't insert or delete rows in either table, nor change a row's
+  `subscriber_id` or `kind`.
+- `Mars/Olympus` is refused on update and on insert, and an unknown kind is
+  refused.
+- The Inactive Subscriber and the outsider read zero rows with no error, and
+  can't write. An anonymous caller is refused outright.
+
+Each refusal test has a positive control, so a broken payload can't pass it.
