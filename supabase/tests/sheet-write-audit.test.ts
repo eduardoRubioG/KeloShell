@@ -1,5 +1,3 @@
-import { execFileSync } from 'node:child_process';
-
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 
@@ -8,12 +6,9 @@ import {
   getFixtures,
   throwawayValue,
 } from './support/fixtures';
+import { runSql } from './support/sql';
 
 const { x, y, inactive, outsider, anon, service } = getFixtures();
-
-// The local stack's Postgres (supabase/config.toml [db] port). supabase-js has
-// no way to send TRUNCATE, so that one case goes through psql as service_role.
-const LOCAL_DB_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
 
 type Row = Record<string, unknown>;
 
@@ -56,30 +51,6 @@ async function expectOwnInsertWorks(): Promise<void> {
   const { error } = await x.client.from('sheet_write_audit').insert(row);
   expect(error).toBeNull();
   expect(await rowsFor(row.spreadsheet_id)).toHaveLength(1);
-}
-
-function psqlAsServiceRole(sql: string): { ok: boolean; output: string } {
-  try {
-    const output = execFileSync(
-      'psql',
-      [
-        LOCAL_DB_URL,
-        '-v',
-        'ON_ERROR_STOP=1',
-        '-c',
-        'set role service_role',
-        '-c',
-        sql,
-      ],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
-    );
-    return { ok: true, output };
-  } catch (error) {
-    const e = error as { stderr?: string; code?: string };
-    if (e.code === 'ENOENT')
-      throw new Error('psql is required for the truncate test');
-    return { ok: false, output: e.stderr ?? '' };
-  }
 }
 
 describe('sheet_write_audit: inserts', () => {
@@ -234,20 +205,29 @@ describe('sheet_write_audit: reads', () => {
 });
 
 describe('sheet_write_audit: append-only', () => {
-  it('refuses X an update and a delete, leaving the row unchanged', async () => {
-    await expectOwnInsertWorks();
+  it('refuses X an update and a delete over SQL, leaving the row unchanged', async () => {
     const row = await seedRow(x.subscriberId);
+    const asX = { role: 'authenticated', sub: x.authUserId } as const;
 
-    const update = await x.client
-      .from('sheet_write_audit')
-      .update({ tab: 'changed' })
-      .eq('id', row.id as number);
-    expect(update.error).not.toBeNull();
-    const del = await x.client
-      .from('sheet_write_audit')
-      .delete()
-      .eq('id', row.id as number);
-    expect(del.error).not.toBeNull();
+    // Positive control: the same session can insert a row of its own, so the
+    // refusals below are about update and delete, not a broken session.
+    const own = runSql(
+      `insert into public.sheet_write_audit (spreadsheet_id, tab, range, operation)
+       values ('${throwawayValue('sql')}', 'Tracking', 'A1', 'write');`,
+      asX
+    );
+    expect(own.stderr).toBe('');
+    expect(own.ok).toBe(true);
+
+    for (const sql of [
+      `update public.sheet_write_audit set tab = 'changed' where id = ${row.id};`,
+      `delete from public.sheet_write_audit where id = ${row.id};`,
+    ]) {
+      const result = runSql(sql, asX);
+      expect(result.ok, sql).toBe(false);
+      expect(result.sqlstate, sql).toBe('42501');
+      expect(result.stderr, sql).toContain('permission denied');
+    }
     expect(await rowsFor(row.spreadsheet_id as string)).toEqual([row]);
   });
 
@@ -259,27 +239,65 @@ describe('sheet_write_audit: append-only', () => {
       .update({ tab: 'changed' })
       .eq('id', row.id as number);
     expect(update.error?.message).toContain('append-only');
+    expect(update.error?.code).toBe('42501');
     const del = await service
       .from('sheet_write_audit')
       .delete()
       .eq('id', row.id as number);
     expect(del.error?.message).toContain('append-only');
+    expect(del.error?.code).toBe('42501');
     expect(await rowsFor(row.spreadsheet_id as string)).toEqual([row]);
   });
 
   it('refuses the service role a truncate, leaving the rows unchanged', async () => {
     const row = await seedRow(x.subscriberId);
 
-    // Positive control: the same connection and role can read the table.
-    const control = psqlAsServiceRole(
-      'select count(*) from public.sheet_write_audit'
-    );
+    // Positive control: the same session and role can read the table.
+    const control = runSql('select count(*) from public.sheet_write_audit;', {
+      role: 'service_role',
+    });
     expect(control.ok).toBe(true);
 
-    const result = psqlAsServiceRole('truncate public.sheet_write_audit');
+    const result = runSql('truncate public.sheet_write_audit;', {
+      role: 'service_role',
+    });
     expect(result.ok).toBe(false);
-    expect(result.output).toContain('append-only');
+    expect(result.sqlstate).toBe('42501');
     expect(await rowsFor(row.spreadsheet_id as string)).toEqual([row]);
+  });
+
+  it('refuses the service role a trigger of its own on the table', async () => {
+    // Positive control: the same role can insert a row in the same session.
+    const control = runSql(
+      `insert into public.sheet_write_audit
+         (subscriber_id, spreadsheet_id, tab, range, operation)
+       values ('${x.subscriberId}', '${throwawayValue('sql')}', 't', 'A1', 'write');`,
+      { role: 'service_role' }
+    );
+    expect(control.stderr).toBe('');
+    expect(control.ok).toBe(true);
+
+    const result = runSql(
+      `create function pg_temp.noop() returns trigger language plpgsql as $$ begin return new; end $$;
+       create trigger rogue before insert on public.sheet_write_audit
+         for each row execute function pg_temp.noop();`,
+      { role: 'service_role' }
+    );
+    expect(result.ok).toBe(false);
+    expect(result.sqlstate).toBe('42501');
+  });
+
+  it('stores the database clock even when the service role sends a written_at', async () => {
+    const row = auditRow(x.subscriberId, {
+      written_at: '2001-01-01T00:00:00Z',
+    });
+    const before = Date.now();
+    const { error } = await service.from('sheet_write_audit').insert(row);
+    expect(error).toBeNull();
+    const [stored] = await rowsFor(row.spreadsheet_id);
+    expect(
+      Math.abs(Date.parse(stored.written_at as string) - before)
+    ).toBeLessThan(60_000);
   });
 });
 
@@ -305,6 +323,7 @@ describe('sheet_write_audit: Subscriber deletion', () => {
       .eq('id', subscriberId);
     // The foreign key itself refuses it. (The delete trigger would also
     // refuse a cascade, so the message tells the two guards apart.)
+    expect(error?.code).toBe('23503');
     expect(error?.message).toContain('foreign key');
 
     const sub = await service

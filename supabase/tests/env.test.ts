@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  assertLocalDbUrl,
   assertLocalSupabaseUrl,
+  resolveLocalDbUrl,
   parseStatusEnv,
   resolveLocalSupabaseEnv,
 } from './support/env';
@@ -74,5 +76,40 @@ describe('resolving the local stack', () => {
         () => statusOutput
       )
     ).toThrow(/needs all of SUPABASE_URL/);
+  });
+});
+
+describe('database URL guard', () => {
+  it('accepts the local database and refuses a remote one', () => {
+    expect(() =>
+      assertLocalDbUrl(
+        'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertLocalDbUrl('postgresql://u:p@db.abc.supabase.co:5432/postgres')
+    ).toThrow(/Isolation suite refused to run/);
+  });
+
+  it('prefers DB_URL from the environment, then status, then the default', () => {
+    const fromEnv = 'postgresql://u:p@localhost:5432/db';
+    expect(resolveLocalDbUrl({ DB_URL: fromEnv }, () => '')).toBe(fromEnv);
+    expect(
+      resolveLocalDbUrl({}, () => 'DB_URL="postgresql://u:p@127.0.0.1:1/db"')
+    ).toBe('postgresql://u:p@127.0.0.1:1/db');
+    expect(
+      resolveLocalDbUrl({}, () => {
+        throw new Error('no stack');
+      })
+    ).toContain('127.0.0.1:54322');
+  });
+
+  it('refuses a remote DB_URL from the environment', () => {
+    expect(() =>
+      resolveLocalDbUrl(
+        { DB_URL: 'postgresql://u:p@db.example.com/db' },
+        () => ''
+      )
+    ).toThrow(/Isolation suite refused to run/);
   });
 });
