@@ -266,6 +266,20 @@ describe('sheet_write_audit: append-only', () => {
     expect(await rowsFor(row.spreadsheet_id as string)).toEqual([row]);
   });
 
+  it('refuses even the table owner a truncate through the trigger', async () => {
+    // The service role no longer holds TRUNCATE, so its refusal above comes
+    // from the privilege check. The owner still holds it, so this proves the
+    // before-truncate trigger itself raises.
+    const row = await seedRow(x.subscriberId);
+
+    const result = runSql('truncate public.sheet_write_audit;', {
+      role: 'postgres',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toContain('append-only');
+    expect(await rowsFor(row.spreadsheet_id as string)).toEqual([row]);
+  });
+
   it('refuses the service role a trigger of its own on the table', async () => {
     // Positive control: the same role can insert a row in the same session.
     const control = runSql(

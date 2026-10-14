@@ -11,8 +11,11 @@ export interface SqlResult {
 }
 
 export interface SqlSession {
-  /** Database role to `set role` to, e.g. `service_role` or `authenticated`. */
-  role: 'service_role' | 'authenticated' | 'anon';
+  /**
+   * Database role to `set role` to, e.g. `service_role` or `authenticated`.
+   * `postgres` is the table owner the migrations run as.
+   */
+  role: 'service_role' | 'authenticated' | 'anon' | 'postgres';
   /** For `authenticated`: the Sign-In Account id, as the JWT `sub` claim. */
   sub?: string;
 }
