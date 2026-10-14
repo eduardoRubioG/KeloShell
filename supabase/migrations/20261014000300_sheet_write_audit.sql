@@ -1,12 +1,12 @@
--- The Sheets write audit log (#48, from #8).
+-- The Sheets write audit log (#48).
 --
 -- Every Sheets write will record which Subscriber wrote to which sheet, tab and
 -- range, and when. The nightly check uses it to flag writes to a sheet the
 -- writer doesn't own, and it supports incident investigation. The table exists
 -- here; writing a row on each Sheets write is step 4.
 --
--- It is append-only for every role, the service role included, and it points at
--- a stable Subscriber (ADR-0005), so a Subscriber with write history can't be
+-- It is append-only against the application roles (the service role included),
+-- and it points at a stable Subscriber (ADR-0005), so a Subscriber with write history can't be
 -- hard-deleted.
 
 create table public.sheet_write_audit (
@@ -29,17 +29,19 @@ create table public.sheet_write_audit (
 );
 
 comment on table public.sheet_write_audit is
-  'Append-only log of Sheets writes: which Subscriber wrote to which spreadsheet, tab and range, and when. No role can update, delete or truncate it, and nobody but the service role can read it.';
+  'Append-only log of Sheets writes: which Subscriber wrote to which spreadsheet, tab and range, and when. The application roles (authenticated, service_role) can neither update, delete nor truncate it; only the service role can read it. The table owner (postgres) and superusers can bypass the triggers.';
 comment on column public.sheet_write_audit.spreadsheet_id is
   'The sheet actually written, deliberately not checked against the Subscriber''s own Source Spreadsheet, so a misdirected write is logged faithfully for the nightly check.';
 comment on column public.sheet_write_audit.written_at is
-  'Always set by the database (now()); clients may not supply it.';
+  'Always set to now() by a before-insert trigger, whatever a client or the service role sends. The table owner and superusers can bypass the trigger.';
 
--- Append-only, for every role. The row triggers refuse update and delete; the
--- statement trigger refuses truncate. Triggers fire for the service role and
--- for postgres alike (they are not RLS). They are bypassed only by
--- `session_replication_role = replica`, which needs superuser, so the
--- guarantee is against application roles, not database superusers.
+-- Append-only against the application roles. The row triggers refuse update
+-- and delete; the statement trigger refuses truncate. Triggers aren't RLS, so
+-- they fire for `service_role` as well as `authenticated`. They can be
+-- bypassed by the table owner (`postgres`: it can disable them or set
+-- `session_replication_role = replica`) and by superusers, i.e. anyone holding
+-- the database password. The guarantee is against `authenticated` and
+-- `service_role` only.
 create function public.refuse_sheet_write_audit_change()
 returns trigger
 language plpgsql
@@ -59,6 +61,25 @@ create trigger sheet_write_audit_no_truncate
   before truncate on public.sheet_write_audit
   for each statement execute function public.refuse_sheet_write_audit_change();
 
+-- The timestamp is evidence: always the database's clock, never a value a
+-- client or the service role sends. (`id` is generated always; only the table
+-- owner or the service role over raw SQL with `overriding system value` could
+-- choose one, and PostgREST can't.)
+create function public.stamp_sheet_write_audit()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  new.written_at := now();
+  return new;
+end;
+$$;
+
+create trigger sheet_write_audit_stamp
+  before insert on public.sheet_write_audit
+  for each row execute function public.stamp_sheet_write_audit();
+
 alter table public.sheet_write_audit enable row level security;
 
 -- anon gets nothing. authenticated may only insert, and only the columns the
@@ -70,6 +91,14 @@ alter table public.sheet_write_audit enable row level security;
 revoke all on table public.sheet_write_audit from anon, authenticated;
 grant insert (subscriber_id, spreadsheet_id, tab, range, operation)
   on table public.sheet_write_audit to authenticated;
+
+-- Supabase also grants the service role everything on new tables. Withdraw the
+-- privileges that would let it reshape the log: with `truncate`, `references`,
+-- `trigger` and `maintain` it could (over SQL) attach its own trigger that
+-- rewrites or blocks inserts. It keeps select (the nightly check), insert, and
+-- update/delete, which the triggers above refuse.
+revoke truncate, references, trigger, maintain
+  on table public.sheet_write_audit from service_role;
 
 create policy "Subscribers log their own writes"
   on public.sheet_write_audit
