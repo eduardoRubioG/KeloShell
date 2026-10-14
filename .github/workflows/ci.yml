@@ -28,3 +28,25 @@ jobs:
       - name: Type-check the reminder cron Worker
         run: npx tsc -p workers/reminder-cron/tsconfig.json
       - run: npm test
+
+  isolation:
+    name: isolation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Start the pared-down local Supabase stack
+        run: npx supabase start -x studio,imgproxy,mailpit,realtime,storage-api,edge-runtime,logflare,vector,supavisor
+      - name: Build the database from migrations alone
+        run: npx supabase db reset
+      - name: Export the local stack's URL and keys
+        # The CLI's local defaults, safe to expose. GITHUB_ENV takes values unquoted.
+        run: npx supabase status -o env | sed -E 's/^([A-Z0-9_]+)="(.*)"$/\1=\2/' >> "$GITHUB_ENV"
+      - run: npm run test:isolation
+      - name: Stop the local Supabase stack
+        if: always()
+        run: npx supabase stop --no-backup
