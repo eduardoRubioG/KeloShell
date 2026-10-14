@@ -116,6 +116,18 @@ _Avoid_: local entry, draft entry
 A person who has an individual KeloShell account, subscription lifecycle, and one active **Source Spreadsheet**.
 _Avoid_: user, customer, athlete
 
+**Sign-In Account**:
+The verified identity a person signs in with, holding their **Account Email**. A Sign-In Account can exist without being a **Subscriber**, for example while a referral signup is still in progress.
+_Avoid_: user, auth user, account
+
+**Enrolment**:
+The operator-recorded fact that a **Subscriber** is a current client of the **Coach Partner**. It is either active or ended, and is independent of payment.
+_Avoid_: account status, subscription status, membership
+
+**Inactive Subscriber**:
+A **Subscriber** whose **Enrolment** the operator has deliberately ended because the coaching relationship ended.
+_Avoid_: cancelled, lapsed, deactivated, unlinked
+
 **Coach Partner**:
 The coach who authors **Program Definitions**, manages **Source Spreadsheets**, and offers KeloShell to their clients. The Coach Partner works in **Source Spreadsheets**, and uses the **PWA** only to review **Sheet Health**.
 _Avoid_: admin, PWA user
@@ -324,6 +336,12 @@ _Avoid_: incomplete check-in
 - The **Account Email** must have a direct Google Drive permission on the active **Source Spreadsheet**
 - Any direct Drive role counts as a link; the permission confirms, but never chooses, the **Subscriber**'s **Source Spreadsheet**
 - An **Unlinked Subscriber** cannot read or write their **Source Spreadsheet** through the **PWA** until the permission is restored
+- A **Subscriber** has exactly one **Sign-In Account**; a **Sign-In Account** need not belong to a **Subscriber**
+- A **Subscriber**'s identity in KeloShell never changes, even if their **Sign-In Account** is replaced
+- A signed-in person without an active **Enrolment** is not enrolled and sees no **Subscriber** data
+- **Enrolment**, **Subscription Entitlement** and link status are independent: a **Subscriber** in **Read-Only Access**, or an **Unlinked Subscriber**, is still enrolled
+- An **Inactive Subscriber** cannot use the **PWA** at all, including **App-Owned Data** export; the operator exports on their behalf
+- An **Enrolment** ends only by a deliberate operator decision, never by a removed share or a failed payment
 - **App-Owned Data** is authoritative outside the **Source Spreadsheet**
 - A **Subscription Entitlement** governs PWA capabilities without changing or deleting the **Source Spreadsheet**
 - **Read-Only Access** does not permit writes to the **Source Spreadsheet** or **App-Owned Data**
