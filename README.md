@@ -105,6 +105,7 @@ npm run dev       # build and run the complete Pages app locally
 npm run dev:ui    # Vite UI only
 npm run dev:host  # expose the Vite UI on your local network for phone testing
 npm test          # unit and failure-path tests
+npm run test:isolation  # Supabase isolation suite (needs npx supabase start)
 npm run build     # frontend and Worker typechecks, then production build
 npm run deploy    # build and deploy with Wrangler
 ```
@@ -126,6 +127,49 @@ the reminder cron Worker (`npx tsc -p workers/reminder-cron/tsconfig.json`), and
 `npm test`. The job is read-only and uses no secrets. `main` is protected: the
 `build-and-test` check must pass and changes go through a pull request. CI does
 not deploy; production still deploys by hand from `main`.
+
+## Supabase local stack and isolation suite
+
+App-Owned Data is moving into Supabase Postgres with row-level security. The
+Supabase project in `supabase/` runs only on the local stack: there is no
+`supabase link` and no remote project ref. The pinned `supabase` CLI is a dev
+dependency, so use it through `npx`. Docker must be running.
+
+```bash
+npx supabase start          # start the local stack and apply supabase/migrations/
+npm run test:isolation      # run the isolation suite against it
+npx supabase db reset       # rebuild the database from migrations alone
+npx supabase stop           # stop the stack when you're done
+```
+
+The isolation suite in `supabase/tests/` proves through supabase-js, with each
+fake user's token, that one Subscriber can't read or change another
+Subscriber's rows. Its global setup reads the stack's URL and keys from
+`npx supabase status -o env`, refuses to run unless the URL's host is
+`127.0.0.1` or `localhost`, and finds or creates the fake users
+(`x@test.local`, `y@test.local`, `inactive@test.local` and
+`outsider@test.local`). It's safe to re-run without a reset. `npm test` never
+includes it, so `npm test` and `build-and-test` don't need Docker.
+
+The schema, its RLS policies and the reasons behind them are documented in
+[`docs/database.md`](docs/database.md).
+
+## Database migrations and the isolation check
+
+Migrations in `supabase/migrations/` are plain SQL and **additive only**: each
+one adds tables, columns, functions, policies or wider checks. Never edit a
+migration that has merged, and never drop, rename or narrow anything in the same
+change that stops using it; destructive changes ship in a later, separate
+migration once nothing depends on the old shape.
+
+The `isolation` job in `.github/workflows/ci.yml` runs on every pull request to
+`main` and every push to `main`, in parallel with `build-and-test`. It starts a
+pared-down local stack, runs `npx supabase db reset`, runs
+`npm run test:isolation`, and always stops the stack. It uses no secrets. The
+`isolation` check is meant to be required on `main` alongside
+`build-and-test`: add it as a required status check in branch protection once it
+has run for the first time. From then on, a change to the schema or its policies
+merges only when it passes.
 
 ## Frontend structure
 
